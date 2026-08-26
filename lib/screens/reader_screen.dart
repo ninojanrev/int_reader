@@ -25,6 +25,7 @@ import '../widgets/reader_toc_sheet.dart';
 import '../widgets/text_appearance_editor.dart';
 import '../widgets/reader_search_bar.dart';
 import '../services/search_index.dart';
+import 'book_info_screen.dart';
 
 class ReaderScreen extends StatefulWidget {  final Book book;
 
@@ -1056,8 +1057,18 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           return Stack(children: [
             GestureDetector(
-              onTap: _toggleChrome,
               behavior: HitTestBehavior.opaque,
+              onTapUp: (details) {
+                final dx = details.localPosition.dx;
+                final w = _viewportW;
+                if (dx < w * 0.33) {
+                  _goToPreviousPage();
+                } else if (dx > w * 0.67) {
+                  _goToNextPage();
+                } else {
+                  _toggleChrome();
+                }
+              },
               child: _buildReaderBody(theme),
             ),
             // Find-bar replaces the top chrome while searching.
@@ -1223,6 +1234,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                 icon: Icon(_bookmarked ? Icons.bookmark : Icons.bookmark_border,
                     color: _bookmarked ? AppColors.accent : theme.text),
                 onPressed: _toggleBookmark),
+            IconButton(
+                icon: Icon(Icons.info_outline, color: theme.text),
+                tooltip: 'Book info',
+                onPressed: () {
+                  _saveProgress();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => BookInfoScreen(book: widget.book)),
+                  );
+                }),
           ]),
         ),
       ),

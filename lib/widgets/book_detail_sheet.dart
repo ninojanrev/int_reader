@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/book.dart';
 import '../providers/library_provider.dart';
+import '../screens/book_info_screen.dart';
 import '../screens/reader_screen.dart';
 
 /// Shared book actions used by the Library tab AND the category/author
@@ -143,6 +144,21 @@ void showBookDetailSheet(BuildContext context, Book book) {
                 style: FilledButton.styleFrom(
                   backgroundColor: theme.colorScheme.primary,
                 ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => BookInfoScreen(book: book)),
+                  );
+                },
+                icon: const Icon(Icons.info_outline, size: 18),
+                label: const Text('Book info'),
               ),
             ),
             const SizedBox(height: 8),
