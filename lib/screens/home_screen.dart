@@ -358,7 +358,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              'ninojanre.v@gmail.com',
+              'https://github.com/ninojanrev/int-reader',
               style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 6),
