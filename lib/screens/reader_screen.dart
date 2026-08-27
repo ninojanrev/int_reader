@@ -88,9 +88,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   // steal render objects from each other mid-swipe.
   final Map<int, Widget> _sliceContentCache = {};
   final Map<int, Widget> _verticalPageCache = {};
-  // Joined page HTML: ONE Html widget per horizontal page instead of one
-  // per fragment — far fewer DOM parses and widgets per page.
-  final Map<int, String> _pageHtmlCache = {};
   // Per-fragment widget cache for vertical mode's lazy ListView: a
   // fragment lives in exactly one slot of one chapter's list, so instance
   // reuse is safe here (unlike PageView pages).
@@ -139,7 +136,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     _contentCacheSig = sig;
     _sliceContentCache.clear();
     _verticalPageCache.clear();
-    _pageHtmlCache.clear();
     _verticalFragmentCache.clear();
     _verticalFragmentsCache.clear();
   }
@@ -189,17 +185,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// instance in two Element positions steals the render object, blanking
   /// the other page. Caching happens per-slot instead (see caches above).
   /// Joined HTML for one horizontal page (single Html widget per page).
-  String _pageHtml(int page) {
-    return _pageHtmlCache.putIfAbsent(page, () {
-      final rec = _pages[page];
-      final frags = _fragmentsFor(rec.chapter);
-      return [
-        for (var i = rec.firstFrag; i <= rec.lastFrag && i < frags.length; i++)
-          frags[i],
-      ].join('<div style="margin:0;padding:0;height:0"></div>');
-    });
-  }
-
   /// Combined rendered height of fragments [first..last] within a chapter,
   /// accounting for CSS margin collapse between adjacent <p> elements.
   /// [base] is the chapter's offset into [flatHeights].
@@ -795,7 +780,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       _committedHighlightQuery = '';
       _sliceContentCache.clear();
       _verticalPageCache.clear();
-      _pageHtmlCache.clear();
       _verticalFragmentCache.clear();
     });
     if (!_isHorizontal) _restoreCurrentPageAfterLayoutChange();
@@ -860,7 +844,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     _committedHighlightQuery = q;
     _sliceContentCache.clear();
     _verticalPageCache.clear();
-    _pageHtmlCache.clear();
     _verticalFragmentCache.clear();
   }
 
@@ -1098,6 +1081,19 @@ class _ReaderScreenState extends State<ReaderScreen>
           margin: Margins.all(0),
         ),
         'p': Style(margin: Margins.only(bottom: 16)),
+        'h1': Style(margin: Margins.only(bottom: 12), fontWeight: FontWeight.bold),
+        'h2': Style(margin: Margins.only(bottom: 10), fontWeight: FontWeight.bold),
+        'h3': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
+        'h4': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
+        'h5': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
+        'h6': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
+        'div': Style(margin: Margins.all(0)),
+        'blockquote': Style(
+          margin: Margins.only(left: 24, top: 0, bottom: 16, right: 0),
+          border: Border(
+            left: BorderSide(color: theme.text.withValues(alpha: 0.3), width: 3),
+          ),
+        ),
         'strong': Style(fontWeight: FontWeight.bold),
         'b': Style(fontWeight: FontWeight.bold),
         'em': Style(fontStyle: FontStyle.italic),
@@ -1187,11 +1183,19 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     }
 
-    // Fast path: ONE Html widget for the whole page (single DOM parse).
+    // Fast path: Column of fragment widgets — matches measurement exactly
+    // so margins behave identically (no margin collapse mismatch).
     if (rec.subSliceCount <= 1) {
+      final frags = _fragmentsFor(rec.chapter);
       return SizedBox(
         width: _contentW,
-        child: _styledHtml(_pageHtml(page), theme),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = rec.firstFrag; i <= rec.lastFrag && i < frags.length; i++)
+              SizedBox(width: _contentW, child: _styledHtml(frags[i], theme)),
+          ],
+        ),
       );
     }
     // Over-tall fragment pixel-sliced across its own pages.
