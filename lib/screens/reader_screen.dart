@@ -567,13 +567,13 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
         }
 
+        _chapterFirstPage = allChapterFirstPage;
         final targetPage = _globalPageFor(_currentPageIndex, _currentSlice)
             .clamp(0, allPages.isEmpty ? 0 : allPages.length - 1);
         _pageController = PageController(initialPage: targetPage);
 
         setState(() {
           _pages = allPages;
-          _chapterFirstPage = allChapterFirstPage;
           _pagesMeasured = true;
           _measureKeys = null;
           _measureFragments = null;
