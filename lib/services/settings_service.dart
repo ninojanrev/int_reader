@@ -25,6 +25,7 @@ class SettingsService {
   static const _kImportConflictMode = 'import_conflict_mode';
   static const _kAnimatedBackdrop = 'animated_library_backdrop';
   static const _kContinueReadingSort = 'continue_reading_sort';
+  static const _kPageMargin = 'page_margin';
 
   late SharedPreferences _prefs;
 
@@ -47,6 +48,7 @@ class SettingsService {
   String importConflictMode = 'Ask every time'; // 'Ask every time' | 'Replace larger automatically'
   bool animatedLibraryBackdrop = true;
   String continueReadingSort = 'Last opened'; // 'Last opened' | 'Progress' | 'Date added'
+  double pageMargin = 12.0;
 
   /// Call once before runApp.
   Future<void> init() async {
@@ -71,6 +73,7 @@ class SettingsService {
     animatedLibraryBackdrop = _prefs.getBool(_kAnimatedBackdrop) ?? true;
     continueReadingSort =
         _prefs.getString(_kContinueReadingSort) ?? 'Last opened';
+    pageMargin = _prefs.getDouble(_kPageMargin) ?? 12.0;
     final themesJson = _prefs.getString(_kCustomThemes);
     if (themesJson != null) {
       try {
@@ -171,6 +174,11 @@ class SettingsService {
     await _prefs.setBool(_kAnimatedBackdrop, v);
   }
 
+  Future<void> setPageMargin(double v) async {
+    pageMargin = v;
+    await _prefs.setDouble(_kPageMargin, v);
+  }
+
   Future<void> setContinueReadingSort(String v) async {
     continueReadingSort = v;
     await _prefs.setString(_kContinueReadingSort, v);
@@ -188,6 +196,7 @@ class SettingsService {
     await setReadingMode('Vertical');
     await setHorizontalDirection('Left to right');
     await setVolumeKeysTurnPages(true);
+    await setPageMargin(12.0);
   }
 }
 

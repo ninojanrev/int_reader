@@ -48,6 +48,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   double _fontSize = 17;
   String _readingTheme = 'Sepia';
   double _lineHeight = 1.6;
+  double _pageMargin = 12.0;
   late String _readingMode;
   late String _horizontalDirection;
 
@@ -121,10 +122,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   bool get _isHorizontal => _readingMode == 'Horizontal';
   int get _totalPages => _pages.length;
   double get _contentW => (_viewportW - 48).clamp(50.0, _viewportW);
-  double get _sliceContentH => (_viewportH - 24).clamp(100.0, _viewportH);
+  double get _sliceContentH => (_viewportH - _pageMargin * 2).clamp(100.0, _viewportH);
 
   String get _currentContentSig =>
-      '$_fontFamily|$_fontSize|$_lineHeight|$_readingTheme|${_contentW.round()}';
+      '$_fontFamily|$_fontSize|$_lineHeight|$_readingTheme|${_contentW.round()}|$_pageMargin';
 
   /// Clear page caches when any text metric changes.
   void _ensureCachesValid() {
@@ -190,7 +191,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       return [
         for (var i = rec.firstFrag; i <= rec.lastFrag && i < frags.length; i++)
           frags[i],
-      ].join();
+      ].join('<div style="margin:0;padding:0;height:0"></div>');
     });
   }
 
@@ -236,6 +237,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _fontSize = settings.fontSize;
     _readingTheme = settings.readingTheme;
     _lineHeight = settings.lineHeight;
+    _pageMargin = settings.pageMargin;
     _readingMode = settings.readingMode;
     _horizontalDirection = settings.horizontalDirection;
     final startChapter =
@@ -835,6 +837,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               readingTheme: _readingTheme,
               readingMode: _readingMode,
               horizontalDirection: _horizontalDirection,
+              pageMargin: _pageMargin,
               textSummary:
                   '$_fontFamily \u00b7 ${_fontSize.round()}pt \u00b7 ${_lineHeight.toStringAsFixed(1)}x',
               onEditTextAppearance: () {
@@ -863,6 +866,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                 settings.setHorizontalDirection(val);
                 setSheetState(() {});
                 _restoreCurrentPageAfterLayoutChange();
+              },
+              onPageMarginChanged: (val) {
+                setState(() => _pageMargin = val);
+                settings.setPageMargin(val);
+                _scheduleRemasure();
+                setSheetState(() {});
               },
             );
           },
@@ -961,7 +970,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// widget instances, so mid-swipe both pages are safe.
   Widget _buildHorizontalSlice(ReaderTheme theme, int page) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+      padding: EdgeInsets.fromLTRB(24, _pageMargin, 24, _pageMargin),
       child: _sliceContentCache.putIfAbsent(
         page,
         () => _buildSliceContent(theme, page),

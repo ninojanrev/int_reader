@@ -10,22 +10,26 @@ class ReaderSettingsSheet extends StatelessWidget {
   final String readingTheme;
   final String readingMode;
   final String horizontalDirection;
+  final double pageMargin;
   final String textSummary;
   final ValueChanged<String> onReadingThemeChanged;
   final VoidCallback onEditTextAppearance;
   final ValueChanged<String> onReadingModeChanged;
   final ValueChanged<String> onHorizontalDirectionChanged;
+  final ValueChanged<double> onPageMarginChanged;
 
   const ReaderSettingsSheet({
     super.key,
     required this.readingTheme,
     required this.readingMode,
     required this.horizontalDirection,
+    required this.pageMargin,
     required this.textSummary,
     required this.onReadingThemeChanged,
     required this.onEditTextAppearance,
     required this.onReadingModeChanged,
     required this.onHorizontalDirectionChanged,
+    required this.onPageMarginChanged,
   });
 
   @override
@@ -60,6 +64,8 @@ class ReaderSettingsSheet extends StatelessWidget {
             if (readingMode == 'Horizontal') ...[
               const SizedBox(height: 16),
               _buildDirectionRow(context),
+              const SizedBox(height: 16),
+              _buildPageMarginRow(context),
             ],
           ],
         ),
@@ -203,6 +209,41 @@ class ReaderSettingsSheet extends StatelessWidget {
               ),
             );
           }).toList(),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _buildPageMarginRow(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _sheetLabel(context, 'Page margin'),
+          Text(
+            '${pageMargin.round()} px',
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 2,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        ),
+        child: Slider(
+          value: pageMargin,
+          min: 0,
+          max: 40,
+          divisions: 20,
+          activeColor: theme.colorScheme.primary,
+          inactiveColor: theme.colorScheme.surfaceContainerHighest,
+          onChanged: onPageMarginChanged,
         ),
       ),
     ]);
