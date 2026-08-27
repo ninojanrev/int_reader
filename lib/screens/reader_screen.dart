@@ -200,6 +200,28 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  /// Combined rendered height of fragments [first..last] within a chapter,
+  /// accounting for CSS margin collapse between adjacent <p> elements.
+  /// [base] is the chapter's offset into [flatHeights].
+  double _combinedHeightForPage(
+      int chapterIdx, int first, int last, List<double> flatHeights, int base) {
+    final frags = _fragmentsFor(chapterIdx);
+    var total = 0.0;
+    for (var i = first; i <= last && i < frags.length; i++) {
+      total += flatHeights[base + i];
+    }
+    // Subtract collapsed margins: when a fragment ends with </p> and the
+    // next starts with <p, their adjacent <p> margins merge (lose 16px).
+    for (var i = first; i < last && i < frags.length - 1; i++) {
+      final endTag = frags[i].trimRight();
+      final startTag = frags[i + 1].trimLeft();
+      if (endTag.endsWith('</p>') && startTag.startsWith('<p')) {
+        total -= 16.0;
+      }
+    }
+    return total;
+  }
+
   /// Vertical mode content: a LAZY list over the chapter's NATURAL blocks
   /// (paragraphs/headings as authored — no sentence splitting, no size
   /// merging), so text flows exactly like a book with no mid-sentence
@@ -484,7 +506,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         for (final key in keys) key.currentContext?.size?.height ?? 0,
       ];
 
-      // Greedy-pack whole fragments into pages for this batch.
+      // Greedy-pack whole fragments into pages for this batch,
+      // using combined HTML height (accounts for margin collapse).
       final batchPages = <_ReaderPage>[];
       final batchChapterFirstPage = <int>[];
       for (var ch = start; ch < end; ch++) {
@@ -493,7 +516,6 @@ class _ReaderScreenState extends State<ReaderScreen>
         final count = fragmentCounts[chLocal];
         final base = chapterOffsets[chLocal];
         var pageStart = 0;
-        var acc = 0.0;
         for (var i = 0; i < count; i++) {
           final h = flatHeights[base + i];
           if (h > usableH) {
@@ -505,16 +527,12 @@ class _ReaderScreenState extends State<ReaderScreen>
               batchPages.add(_ReaderPage(ch, i, i, subSlice: s, subSliceCount: slices));
             }
             pageStart = i + 1;
-            acc = 0;
             continue;
           }
-          final gap = i > pageStart ? 12.0 : 0.0;
-          if (acc > 0 && acc + gap + h > usableH && i > pageStart) {
+          final combined = _combinedHeightForPage(ch, pageStart, i, flatHeights, base);
+          if (combined > usableH && i > pageStart) {
             batchPages.add(_ReaderPage(ch, pageStart, i - 1));
             pageStart = i;
-            acc = h;
-          } else {
-            acc += gap + h;
           }
         }
         if (pageStart < count) {
