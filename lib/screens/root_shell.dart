@@ -17,9 +17,11 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   int _navIndex = 0;
+  // Untyped key — we call closeSearch()/isSearching via dynamic.
+  final _homeKey = GlobalKey();
 
-  static final _tabs = [
-    const HomeScreen(),
+  late final _tabs = [
+    HomeScreen(key: _homeKey),
     const StatsScreen(),
     const SavedScreen(),
     const SettingsScreen(),
@@ -30,25 +32,44 @@ class _RootShellState extends State<RootShell> {
     return ValueListenableBuilder<bool>(
       valueListenable: darkModeNotifier,
       builder: (context, isDark, _) {
-        return Scaffold(
-          body: IndexedStack(
-            index: _navIndex,
-            children: [
-              // Suspend animations (e.g. the cover backdrop clock) for
-              // tabs that aren't selected.
-              for (var i = 0; i < _tabs.length; i++)
-                TickerMode(enabled: i == _navIndex, child: _tabs[i]),
-            ],
-          ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _navIndex,
-            onDestinationSelected: (i) => setState(() => _navIndex = i),
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.auto_stories_outlined), label: 'Library'),
-              NavigationDestination(icon: Icon(Icons.bar_chart_outlined), label: 'Stats'),
-              NavigationDestination(icon: Icon(Icons.bookmark_border), label: 'Saved'),
-              NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-            ],
+        return PopScope(
+          canPop: _navIndex == 0,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (_navIndex != 0) {
+              setState(() => _navIndex = 0);
+              return;
+            }
+            // On library tab — close search if open.
+            final homeState = _homeKey.currentState;
+            if (homeState != null) {
+              // ignore: avoid_dynamic_calls
+              final searching = (homeState as dynamic).isSearching as bool;
+              if (searching) {
+                // ignore: avoid_dynamic_calls
+                (homeState as dynamic).closeSearch();
+                return;
+              }
+            }
+          },
+          child: Scaffold(
+            body: IndexedStack(
+              index: _navIndex,
+              children: [
+                for (var i = 0; i < _tabs.length; i++)
+                  TickerMode(enabled: i == _navIndex, child: _tabs[i]),
+              ],
+            ),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _navIndex,
+              onDestinationSelected: (i) => setState(() => _navIndex = i),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.auto_stories_outlined), label: 'Library'),
+                NavigationDestination(icon: Icon(Icons.bar_chart_outlined), label: 'Stats'),
+                NavigationDestination(icon: Icon(Icons.bookmark_border), label: 'Saved'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+              ],
+            ),
           ),
         );
       },

@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import '../providers/library_provider.dart';
 import '../services/file_service.dart';
@@ -224,6 +225,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  void _showPrivacyPolicy() {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        title: Text('Privacy Policy', style: theme.textTheme.titleMedium),
+        content: SingleChildScrollView(
+          child: Text(
+            'Int Reader operates entirely offline. No data is collected, '
+            'stored, or transmitted to any server. All books, reading progress, '
+            'highlights, and settings are stored locally on your device and '
+            'are never shared with third parties.\n\n'
+            'This app requires storage permission solely to read book files '
+            'you select. No files are copied to external servers.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -456,7 +485,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsRow(icon: Icons.info_outline, label: 'App version', trailing: '1.0.0',
               onTap: () => _showMessage('App is up to date (v1.0.0)')),
             _SettingsRow(icon: Icons.privacy_tip_outlined, label: 'Privacy policy',
-              onTap: () => _showMessage('Opening Privacy Policy...')),
+              onTap: () => _showPrivacyPolicy()),
+            _SettingsRow(icon: Icons.bug_report_outlined, label: 'Report a bug',
+              onTap: () => launchUrl(Uri.parse('https://github.com/ninojanrev/int_reader/issues'))),
             _SettingsRow(icon: Icons.delete_outline, label: 'Clear cache',
               onTap: () async {
                 await fileService.clearOrphanedCovers();

@@ -40,6 +40,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool get _searching => _searchFocus.hasFocus || _searchQuery.isNotEmpty;
 
+  /// Public getter for RootShell's back-button handling.
+  bool get isSearching => _searching;
+
+  /// Close search bar — called by RootShell when back is pressed.
+  void closeSearch() {
+    _searchController.clear();
+    _searchFocus.unfocus();
+    setState(() => _searchQuery = '');
+  }
+
   @override
   void dispose() {
     darkModeNotifier.removeListener(_onDarkModeChanged);
