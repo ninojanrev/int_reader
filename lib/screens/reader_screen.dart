@@ -39,7 +39,7 @@ class ReaderScreen extends StatefulWidget {  final Book book;
 
 class _ReaderScreenState extends State<ReaderScreen>
     with WidgetsBindingObserver {
-  late final PageController _pageController;
+  PageController? _pageController;
   int _currentPageIndex = 0; // chapter index (both modes)
   int _currentSlice = 0; // page-within-chapter (horizontal mode only)
   bool _chromeVisible = false;
@@ -74,6 +74,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   double _viewportW = 0;
   double _viewportH = 0;
   Timer? _remeasureDebounce;
+
+  // Incremental measurement: which chapters have been measured.
+  int _measuredChapterStart = 0;
+  int _measuredChapterEnd = 0; // exclusive
+  bool _incrementalPhase = false; // true while background batches run
 
   // Rendered-content caches (invalidated when text metrics change).
   final Map<int, List<String>> _fragmentsCache = {};
@@ -245,7 +250,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             .clamp(0, 1 << 30);
     _currentPageIndex = startChapter;
     _currentSlice = widget.book.currentPage.clamp(0, 1 << 30);
-    _pageController = PageController(initialPage: 0);
+    // Vertical mode needs the controller immediately; horizontal defers
+    // until measurement completes to avoid the page-0 flicker.
+    if (!_isHorizontal) {
+      _pageController = PageController(initialPage: _currentPageIndex);
+    }
     if (settings.keepScreenAwake) WakelockPlus.enable();
     _readingStopwatch.start();
     _statsFlushTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -271,12 +280,12 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Move one page forward (horizontal mode: one page; vertical: chapter).
   void _goToNextPage() {
-    if (_isHorizontal && _pagesMeasured && _totalPages > 0) {
+    if (_isHorizontal && _pagesMeasured && _totalPages > 0 && _pageController != null) {
       final current = _globalPageFor(_currentPageIndex, _currentSlice);
       final rtl = _horizontalDirection == 'Right to left';
       // In RTL the visual "next" page is at a lower index.
       final target = (rtl ? current - 1 : current + 1).clamp(0, _totalPages - 1);
-      _pageController.animateToPage(
+      _pageController!.animateToPage(
         target,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOutCubic,
@@ -287,11 +296,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _goToPreviousPage() {
-    if (_isHorizontal && _pagesMeasured && _totalPages > 0) {
+    if (_isHorizontal && _pagesMeasured && _totalPages > 0 && _pageController != null) {
       final current = _globalPageFor(_currentPageIndex, _currentSlice);
       final rtl = _horizontalDirection == 'Right to left';
       final target = (rtl ? current + 1 : current - 1).clamp(0, _totalPages - 1);
-      _pageController.animateToPage(
+      _pageController!.animateToPage(
         target,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOutCubic,
@@ -303,10 +312,10 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Animated jump to a neighbouring vertical chapter (clamped).
   void _jumpToChapterAnimated(int chapterIndex) {
-    if (!_pageController.hasClients) return;
+    if (_pageController == null || !_pageController!.hasClients) return;
     final target =
         chapterIndex.clamp(0, _chapters.isEmpty ? 0 : _chapters.length - 1);
-    _pageController.animateToPage(
+    _pageController!.animateToPage(
       target,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
@@ -364,7 +373,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _saveProgress();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _verticalScrollController.dispose();
-    _pageController.dispose();
+    _pageController?.dispose();
     super.dispose();
   }
 
@@ -411,11 +420,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Jump the PageView back to the stored location once laid out.
   void _restoreCurrentPageAfterLayoutChange() {
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_pageController.hasClients) return;
+      if (!mounted || _pageController == null || !_pageController!.hasClients) return;
       final target =
           _isHorizontal ? _globalPageFor(_currentPageIndex, _currentSlice) : _currentPageIndex;
-      if (_pageController.page?.round() != target) {
-        _pageController.jumpToPage(target);
+      if (_pageController!.page?.round() != target) {
+        _pageController!.jumpToPage(target);
       }
     });
   }
@@ -425,17 +434,34 @@ class _ReaderScreenState extends State<ReaderScreen>
   // Scratch data, only non-null during a measure pass.
   List<Widget>? _measureFragments;
 
-  /// Offscreen layout pass measuring every fragment, then greedy-packing
+  /// Offscreen layout pass measuring fragments, then greedy-packing
   /// whole fragments into viewport-sized pages.
+  ///
+  /// Uses incremental measurement: the current chapter ± a small buffer is
+  /// measured first so the reader opens instantly; the remaining chapters
+  /// are measured in background batches of 10.
   void _runMeasurement() {
     _measureScheduled = false;
     if (!mounted || _chapters.isEmpty || !_isHorizontal) return;
+
+    // Phase 1: measure current chapter ± 2 (min 7 chapters total).
+    final bufferStart = (_currentPageIndex - 2).clamp(0, _chapters.length);
+    final bufferEnd = (_currentPageIndex + 5).clamp(0, _chapters.length);
+    _measuredChapterStart = bufferStart;
+    _measuredChapterEnd = bufferEnd;
+    _measureBatch(bufferStart, bufferEnd, isFirstBatch: true);
+  }
+
+  /// Measure chapters [start, end) and pack into pages.
+  /// On the first batch, creates the PageController.
+  void _measureBatch(int start, int end, {required bool isFirstBatch}) {
+    if (!mounted || start >= end) return;
 
     final keys = <GlobalKey>[];
     final widgets = <Widget>[];
     final chapterOffsets = <int>[];
     final fragmentCounts = <int>[];
-    for (var ch = 0; ch < _chapters.length; ch++) {
+    for (var ch = start; ch < end; ch++) {
       chapterOffsets.add(keys.length);
       final frags = _fragmentWidgets(_resolvedTheme, ch);
       fragmentCounts.add(frags.length);
@@ -453,32 +479,30 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final usableH = _sliceContentH - 8; // safety slack
+      final usableH = _sliceContentH;
       final flatHeights = <double>[
         for (final key in keys) key.currentContext?.size?.height ?? 0,
       ];
 
-      // Greedy-pack whole fragments into pages, chapter by chapter.
-      // A fragment taller than a page gets sliced across multiple pages
-      // (rare: very large images or unbreakable blocks).
-      final pages = <_ReaderPage>[];
-      final chapterFirstPage = <int>[];
-      for (var ch = 0; ch < _chapters.length; ch++) {
-        chapterFirstPage.add(pages.length);
-        final count = fragmentCounts[ch];
-        final base = chapterOffsets[ch];
+      // Greedy-pack whole fragments into pages for this batch.
+      final batchPages = <_ReaderPage>[];
+      final batchChapterFirstPage = <int>[];
+      for (var ch = start; ch < end; ch++) {
+        final chLocal = ch - start;
+        batchChapterFirstPage.add(batchPages.length);
+        final count = fragmentCounts[chLocal];
+        final base = chapterOffsets[chLocal];
         var pageStart = 0;
         var acc = 0.0;
         for (var i = 0; i < count; i++) {
           final h = flatHeights[base + i];
           if (h > usableH) {
-            // Flush the current page first.
             if (i > pageStart) {
-              pages.add(_ReaderPage(ch, pageStart, i - 1));
+              batchPages.add(_ReaderPage(ch, pageStart, i - 1));
             }
             final slices = (h / usableH).ceil();
             for (var s = 0; s < slices; s++) {
-              pages.add(_ReaderPage(ch, i, i, subSlice: s, subSliceCount: slices));
+              batchPages.add(_ReaderPage(ch, i, i, subSlice: s, subSliceCount: slices));
             }
             pageStart = i + 1;
             acc = 0;
@@ -486,7 +510,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           final gap = i > pageStart ? 12.0 : 0.0;
           if (acc > 0 && acc + gap + h > usableH && i > pageStart) {
-            pages.add(_ReaderPage(ch, pageStart, i - 1));
+            batchPages.add(_ReaderPage(ch, pageStart, i - 1));
             pageStart = i;
             acc = h;
           } else {
@@ -494,20 +518,126 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
         }
         if (pageStart < count) {
-          pages.add(_ReaderPage(ch, pageStart, count == 0 ? 0 : count - 1));
+          batchPages.add(_ReaderPage(ch, pageStart, count == 0 ? 0 : count - 1));
         } else if (count == 0) {
-          pages.add(_ReaderPage(ch, 0, 0));
+          batchPages.add(_ReaderPage(ch, 0, 0));
         }
       }
 
-      setState(() {
-        _pages = pages;
-        _chapterFirstPage = chapterFirstPage;
-        _pagesMeasured = true;
+      if (isFirstBatch) {
+        // Build initial page list: measured chapters + one placeholder per
+        // unmeasured chapter so the PageView has a stable item count.
+        final allPages = <_ReaderPage>[];
+        final allChapterFirstPage = <int>[];
+        for (var ch = 0; ch < _chapters.length; ch++) {
+          allChapterFirstPage.add(allPages.length);
+          if (ch >= start && ch < end) {
+            // Measured: use real pages.
+            final offset = ch - start;
+            final chStart = offset > 0 ? batchChapterFirstPage[offset - (start > 0 ? 0 : 0)] : 0;
+            final chEnd = offset < batchChapterFirstPage.length
+                ? (offset + 1 < batchChapterFirstPage.length
+                    ? batchChapterFirstPage[offset + 1]
+                    : batchPages.length)
+                : batchPages.length;
+            for (var p = chStart; p < chEnd && p < batchPages.length; p++) {
+              allPages.add(batchPages[p]);
+            }
+          } else {
+            // Unmeasured: single placeholder page for the whole chapter.
+            allPages.add(_ReaderPage(ch, 0, 0));
+          }
+        }
+
+        final targetPage = _globalPageFor(_currentPageIndex, _currentSlice)
+            .clamp(0, allPages.isEmpty ? 0 : allPages.length - 1);
+        _pageController = PageController(initialPage: targetPage);
+
+        setState(() {
+          _pages = allPages;
+          _chapterFirstPage = allChapterFirstPage;
+          _pagesMeasured = true;
+          _measureKeys = null;
+          _measureFragments = null;
+        });
+
+        // Schedule background measurement for the remaining chapters.
+        if (end < _chapters.length) {
+          _incrementalPhase = true;
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _measureRemainingBatch();
+          });
+        }
+      } else {
+        // Background batch: replace placeholder pages for measured chapters
+        // with real pages. Preserve pages from earlier batches.
+        _mergeBatchPages(start, end, batchPages, batchChapterFirstPage);
         _measureKeys = null;
         _measureFragments = null;
-      });
-      _restoreCurrentPageAfterLayoutChange();
+
+        if (end >= _chapters.length) {
+          _incrementalPhase = false;
+        } else {
+          // Schedule next batch.
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _measureRemainingBatch();
+          });
+        }
+      }
+    });
+  }
+
+  /// Measure the next batch of 10 chapters in the background.
+  void _measureRemainingBatch() {
+    if (!mounted || !_incrementalPhase) return;
+    final start = _measuredChapterEnd;
+    final end = (start + 10).clamp(0, _chapters.length);
+    if (start >= end) {
+      _incrementalPhase = false;
+      return;
+    }
+    _measuredChapterEnd = end;
+    _measureBatch(start, end, isFirstBatch: false);
+  }
+
+  /// Merge a background batch's pages into the live page list,
+  /// replacing placeholder pages for the measured chapters.
+  void _mergeBatchPages(
+      int start, int end, List<_ReaderPage> batchPages, List<int> batchChapterFirst) {
+    // Build new page list: keep unmeasured chapters' placeholders,
+    // replace measured chapters with real pages.
+    final newPages = <_ReaderPage>[];
+    final newChapterFirst = <int>[];
+    for (var ch = 0; ch < _chapters.length; ch++) {
+      newChapterFirst.add(newPages.length);
+      if (ch >= start && ch < end) {
+        // This chapter was just measured — use batch pages.
+        final offset = ch - start;
+        final chStart = batchChapterFirst[offset];
+        final chEnd = offset + 1 < batchChapterFirst.length
+            ? batchChapterFirst[offset + 1]
+            : batchPages.length;
+        for (var p = chStart; p < chEnd && p < batchPages.length; p++) {
+          newPages.add(batchPages[p]);
+        }
+      } else if (ch >= _measuredChapterStart && ch < _measuredChapterEnd && ch < start) {
+        // Already measured in an earlier batch — keep existing pages.
+        final oldStart = _chapterFirstPage[ch];
+        final oldEnd = ch + 1 < _chapterFirstPage.length
+            ? _chapterFirstPage[ch + 1]
+            : _pages.length;
+        for (var p = oldStart; p < oldEnd && p < _pages.length; p++) {
+          newPages.add(_pages[p]);
+        }
+      } else {
+        // Not yet measured — placeholder.
+        newPages.add(_ReaderPage(ch, 0, 0));
+      }
+    }
+
+    setState(() {
+      _pages = newPages;
+      _chapterFirstPage = newChapterFirst;
     });
   }
 
@@ -562,7 +692,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _currentPageIndex = chapterIndex;
       _currentSlice = 0;
     });
-    _pageController.jumpToPage(target);
+    _pageController?.jumpToPage(target);
   }
 
   void _onPageChanged(int page) {
@@ -726,8 +856,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     _commitHighlightQuery();
     if (_isHorizontal && _pagesMeasured && _totalPages > 0) {
       final page = _pageContainingFragment(hit.chapterIdx, hit.itemIdx);
-      if (page >= 0 && _pageController.hasClients) {
-        await _pageController.animateToPage(
+      if (page >= 0 && _pageController != null && _pageController!.hasClients) {
+        await _pageController!.animateToPage(
           page,
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
@@ -942,6 +1072,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           fontSize: FontSize(_fontSize),
           lineHeight: LineHeight.number(_lineHeight),
           color: theme.text,
+          margin: Margins.all(0),
         ),
         'p': Style(margin: Margins.only(bottom: 16)),
       },
@@ -987,8 +1118,36 @@ class _ReaderScreenState extends State<ReaderScreen>
     ];
   }
 
+  /// Whether a page is a placeholder (chapter not yet fully measured).
+  bool _isPlaceholderPage(int page) {
+    if (page < 0 || page >= _pages.length) return false;
+    final ch = _pages[page].chapter;
+    final frags = _fragmentsFor(ch);
+    final chapterPageCount = (ch + 1 < _chapterFirstPage.length
+        ? _chapterFirstPage[ch + 1]
+        : _pages.length) - _chapterFirstPage[ch];
+    // Placeholder: single page for a chapter with multiple fragments.
+    return chapterPageCount == 1 && frags.length > 1;
+  }
+
   Widget _buildSliceContent(ReaderTheme theme, int page) {
     final rec = _pages[page];
+
+    // Placeholder page: chapter not yet measured — show full chapter
+    // in a scrollable ListView so the user can still read while
+    // background measurement runs.
+    if (_isPlaceholderPage(page)) {
+      final frags = _fragmentsFor(rec.chapter);
+      return SizedBox(
+        width: _contentW,
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: frags.length,
+          itemBuilder: (context, i) => _styledHtml(frags[i], theme),
+        ),
+      );
+    }
+
     // Fast path: ONE Html widget for the whole page (single DOM parse).
     if (rec.subSliceCount <= 1) {
       return SizedBox(
@@ -1114,7 +1273,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         return const Center(child: CircularProgressIndicator());
       }
       return PageView.builder(
-        controller: _pageController,
+        controller: _pageController!,
         itemCount: _totalPages,
         scrollDirection: Axis.horizontal,
         reverse: _horizontalDirection == 'Right to left',
@@ -1146,7 +1305,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         dragDx = null;
       },
       child: PageView.builder(
-        controller: _pageController,
+        controller: _pageController!,
         itemCount: _chapters.length,
         scrollDirection: Axis.vertical,
         allowImplicitScrolling: true,
@@ -1293,8 +1452,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                       final maxTarget = usePages
                           ? total - 1
                           : _chapters.length - 1;
-                      if (maxTarget <= 0) return;
-                      _pageController.jumpToPage(
+                      if (maxTarget <= 0 || _pageController == null) return;
+                      _pageController!.jumpToPage(
                           (val * maxTarget).round().clamp(0, maxTarget));
                     })),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
