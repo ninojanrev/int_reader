@@ -568,7 +568,12 @@ class _ReaderScreenState extends State<ReaderScreen>
         }
 
         _chapterFirstPage = allChapterFirstPage;
-        final targetPage = _globalPageFor(_currentPageIndex, _currentSlice)
+        final pagesInChapter = (_currentPageIndex + 1 < allChapterFirstPage.length
+                ? allChapterFirstPage[_currentPageIndex + 1]
+                : allPages.length) -
+            allChapterFirstPage[_currentPageIndex];
+        final slice = _currentSlice.clamp(0, (pagesInChapter - 1).clamp(0, 1 << 30));
+        final targetPage = (allChapterFirstPage[_currentPageIndex] + slice)
             .clamp(0, allPages.isEmpty ? 0 : allPages.length - 1);
         _pageController = PageController(initialPage: targetPage);
 
@@ -1093,6 +1098,22 @@ class _ReaderScreenState extends State<ReaderScreen>
           margin: Margins.all(0),
         ),
         'p': Style(margin: Margins.only(bottom: 16)),
+        'strong': Style(fontWeight: FontWeight.bold),
+        'b': Style(fontWeight: FontWeight.bold),
+        'em': Style(fontStyle: FontStyle.italic),
+        'i': Style(fontStyle: FontStyle.italic),
+        'u': Style(textDecoration: TextDecoration.underline),
+        'code': Style(
+          fontFamily: 'monospace',
+          fontSize: FontSize(_fontSize * 0.9),
+          backgroundColor: theme.text.withValues(alpha: 0.08),
+        ),
+        'pre': Style(
+          fontFamily: 'monospace',
+          fontSize: FontSize(_fontSize * 0.9),
+          backgroundColor: theme.text.withValues(alpha: 0.08),
+          whiteSpace: WhiteSpace.pre,
+        ),
       },
     );
   }
