@@ -36,10 +36,10 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 flutter_launcher_icons:
-  image_path: "assets/branding/int_reader_icon.png"
+  image_path: "assets/branding/int_reader_logo.png"
   android: true
-  adaptive_icon_background: "#2E6FBF"
-  adaptive_icon_foreground: "assets/branding/int_reader_adaptive_foreground.png"
+  adaptive_icon_background: "#F0EDE8"
+  adaptive_icon_foreground: "assets/branding/int_reader_logo.png"
 
 flutter:
   uses-material-design: true
