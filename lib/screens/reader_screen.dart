@@ -100,6 +100,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   // In-memory bookmark lookup so page flips don't hit the database.
   final Set<int> _bookmarkedChapters = {};
+  List<Bookmark> _currentBookmarks = [];
 
   final ScrollController _verticalScrollController = ScrollController();
 
@@ -402,6 +403,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           ..clear()
           ..addAll(bookmarks.map((b) => b.chapterIndex));
         _bookmarked = _bookmarkedChapters.contains(_currentPageIndex);
+        _currentBookmarks = bookmarks;
       });
       if (!_isHorizontal) {
         _restoreCurrentPageAfterLayoutChange();
@@ -944,6 +946,8 @@ class _ReaderScreenState extends State<ReaderScreen>
           currentChapterIndex: _currentPageIndex,
           onChapterSelected: _jumpToChapter,
           chapters: _chapters,
+          bookmarks: _currentBookmarks,
+          onDeleteBookmark: _deleteBookmarkFromSheet,
         ),
       ),
     );
@@ -1057,6 +1061,23 @@ class _ReaderScreenState extends State<ReaderScreen>
       _bookmarkedChapters.add(_currentPageIndex);
     }
     setState(() => _bookmarked = !isCurrentlyBookmarked);
+  }
+
+  void _deleteBookmarkFromSheet(Bookmark bookmark) async {
+    final library = context.read<LibraryState>();
+    if (bookmark.id != null) {
+      await library.deleteBookmark(bookmark.id!);
+    }
+    // Refresh the in-memory sets.
+    final bookmarks = await library.getBookmarksForBook(widget.book.id);
+    if (!mounted) return;
+    setState(() {
+      _bookmarkedChapters
+        ..clear()
+        ..addAll(bookmarks.map((b) => b.chapterIndex));
+      _bookmarked = _bookmarkedChapters.contains(_currentPageIndex);
+      _currentBookmarks = bookmarks;
+    });
   }
 
   Widget _styledHtml(String htmlContent, ReaderTheme theme) {

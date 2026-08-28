@@ -26,6 +26,7 @@ class SettingsService {
   static const _kAnimatedBackdrop = 'animated_library_backdrop';
   static const _kContinueReadingSort = 'continue_reading_sort';
   static const _kPageMargin = 'page_margin';
+  static const _kOpenLastBookOnStart = 'open_last_book_on_start';
 
   late SharedPreferences _prefs;
 
@@ -49,6 +50,7 @@ class SettingsService {
   bool animatedLibraryBackdrop = true;
   String continueReadingSort = 'Last opened'; // 'Last opened' | 'Progress' | 'Date added'
   double pageMargin = 12.0;
+  bool openLastBookOnStart = false;
 
   /// Call once before runApp.
   Future<void> init() async {
@@ -74,6 +76,7 @@ class SettingsService {
     continueReadingSort =
         _prefs.getString(_kContinueReadingSort) ?? 'Last opened';
     pageMargin = _prefs.getDouble(_kPageMargin) ?? 12.0;
+    openLastBookOnStart = _prefs.getBool(_kOpenLastBookOnStart) ?? false;
     final themesJson = _prefs.getString(_kCustomThemes);
     if (themesJson != null) {
       try {
@@ -182,6 +185,11 @@ class SettingsService {
   Future<void> setContinueReadingSort(String v) async {
     continueReadingSort = v;
     await _prefs.setString(_kContinueReadingSort, v);
+  }
+
+  Future<void> setOpenLastBookOnStart(bool v) async {
+    openLastBookOnStart = v;
+    await _prefs.setBool(_kOpenLastBookOnStart, v);
   }
 
   /// Restore every Reading-section option to its default and persist.

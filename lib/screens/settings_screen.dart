@@ -342,6 +342,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
           const SizedBox(height: 20),
+          _buildSection('General', [
+            _SettingsRow(icon: Icons.history, label: 'Open last book on start',
+              isSwitch: true, switchValue: settings.openLastBookOnStart,
+              onSwitchChanged: (val) { setState(() {}); settings.setOpenLastBookOnStart(val); }),
+          ]),
+          const SizedBox(height: 20),
           _buildSection('Reading', [
             _SettingsRow(icon: Icons.text_format, label: 'Text appearance',
               trailing:

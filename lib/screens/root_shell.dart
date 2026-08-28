@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../main.dart';
+import '../services/settings_service.dart';
+import '../providers/library_provider.dart';
 import 'home_screen.dart';
+import 'reader_screen.dart';
 import 'saved_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
@@ -17,6 +21,7 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   int _navIndex = 0;
+  bool _hasAutoOpened = false;
   // Untyped key — we call closeSearch()/isSearching via dynamic.
   final _homeKey = GlobalKey();
 
@@ -27,8 +32,37 @@ class _RootShellState extends State<RootShell> {
     const SettingsScreen(),
   ];
 
+  void _tryAutoOpenLastBook() {
+    if (_hasAutoOpened) return;
+    if (!settings.openLastBookOnStart) return;
+    _hasAutoOpened = true;
+
+    final library = context.read<LibraryState>();
+    final books = library.books;
+    if (books.isEmpty) return;
+
+    // Find the most recently read book.
+    final lastRead = books
+        .where((b) => b.lastReadAt != null)
+        .toList()
+      ..sort((a, b) => b.lastReadAt!.compareTo(a.lastReadAt!));
+    if (lastRead.isEmpty) return;
+
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReaderScreen(book: lastRead.first),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tryAutoOpenLastBook();
+    });
+
     return ValueListenableBuilder<bool>(
       valueListenable: darkModeNotifier,
       builder: (context, isDark, _) {
