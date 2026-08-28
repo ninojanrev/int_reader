@@ -410,3 +410,10 @@ class EpubParserService {
 /// Global singleton instance.
 final epubParser = EpubParserService();
 
+/// Top-level function for use with [compute]. Runs the full EPUB parse
+/// (ZIP decompression, chapter extraction, image copying, cover encoding)
+/// in a background isolate so the UI thread stays responsive.
+Future<ParsedEpub> parseEpubInIsolate(String filePath) async {
+  return epubParser.parseFile(filePath);
+}
+

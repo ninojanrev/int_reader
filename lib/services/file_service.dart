@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
 import 'book_parser.dart';
+import 'book_cache_service.dart';
 import 'cover_generator.dart';
 import '../database/database_helper.dart';
 
@@ -121,6 +122,9 @@ class FileService {
       // Save to database
       await dbHelper.insertBook(book);
 
+      // Cache parsed content for instant reader opening.
+      await bookCache.save(bookId, parsed);
+
       return book;
     } catch (e) {
       // Import failed - clean up any partial files
@@ -193,6 +197,9 @@ class FileService {
       coverImagePath: coverPath,
     );
 
+    // Refresh the cache with new content.
+    await bookCache.save(existing.id, parsed);
+
     return existing.copyWith(
       totalChapters: parsed.chapters.length,
       coverImagePath: coverPath,
@@ -214,6 +221,9 @@ class FileService {
 
       final coverDir = Directory(p.join(booksDir.path, bookId));
       if (await coverDir.exists()) await coverDir.delete(recursive: true);
+
+      // Remove parsed content cache.
+      await bookCache.delete(bookId);
     } catch (_) {}
   }
 

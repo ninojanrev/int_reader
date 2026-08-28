@@ -20,6 +20,7 @@ import '../services/font_service.dart';
 import '../services/volume_key_service.dart';
 import '../widgets/magnetic_page_physics.dart';
 import '../services/epub_parser.dart';
+import '../services/book_cache_service.dart';
 import '../providers/library_provider.dart';
 import '../widgets/reader_toc_sheet.dart';
 import '../widgets/text_appearance_editor.dart';
@@ -384,7 +385,17 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _loadEpub() async {
     try {
-      final parsed = await epubParser.parseFile(widget.book.filePath);
+      ParsedEpub parsed;
+
+      // Try loading from disk cache first (instant). Falls back to
+      // full EPUB parsing in a background isolate for books imported
+      // before caching was added.
+      if (await bookCache.hasCache(widget.book.id)) {
+        parsed = await bookCache.load(widget.book.id) as ParsedEpub;
+      } else {
+        parsed = await compute(parseEpubInIsolate, widget.book.filePath);
+      }
+
       if (!mounted) return;
       setState(() {
         _parsedEpub = parsed;
