@@ -27,6 +27,13 @@ class SettingsService {
   static const _kContinueReadingSort = 'continue_reading_sort';
   static const _kPageMargin = 'page_margin';
   static const _kOpenLastBookOnStart = 'open_last_book_on_start';
+  static const _kReaderBrightness = 'reader_brightness';
+  static const _kFontWeight = 'font_weight';
+  static const _kTextAlign = 'text_align';
+  static const _kParagraphSpacing = 'paragraph_spacing';
+  static const _kParagraphIndent = 'paragraph_indent';
+  static const _kPerceptionExpander = 'perception_expander';
+  static const _kHorizontalLimiter = 'horizontal_limiter';
 
   late SharedPreferences _prefs;
 
@@ -40,7 +47,7 @@ class SettingsService {
   bool keepScreenAwake = true;
   bool reminderEnabled = false;
   int reminderMinutesOfDay = 20 * 60; // 20:00
-  String readingMode = 'Vertical'; // 'Vertical' | 'Horizontal'
+  String readingMode = 'Scrolling'; // 'Scrolling' | 'Paged'
   String horizontalDirection = 'Left to right'; // 'Left to right' | 'Right to left'
   double lineHeight = 1.6;
   List<CustomReaderTheme> customReaderThemes = [];
@@ -51,6 +58,13 @@ class SettingsService {
   String continueReadingSort = 'Last opened'; // 'Last opened' | 'Progress' | 'Date added'
   double pageMargin = 12.0;
   bool openLastBookOnStart = false;
+  double readerBrightness = -1; // -1 = system default, 0.0–1.0 = custom
+  double fontWeight = 400; // 100–700
+  String textAlign = 'Justify'; // 'Left' | 'Justify' | 'Center' | 'Right'
+  double paragraphSpacing = 16;
+  double paragraphIndent = 0;
+  bool perceptionExpander = false;
+  bool horizontalLimiter = false;
 
   /// Call once before runApp.
   Future<void> init() async {
@@ -64,7 +78,19 @@ class SettingsService {
     keepScreenAwake = _prefs.getBool(_kKeepScreenAwake) ?? true;
     reminderEnabled = _prefs.getBool(_kReminderEnabled) ?? false;
     reminderMinutesOfDay = _prefs.getInt(_kReminderMinutesOfDay) ?? 20 * 60;
-    readingMode = _prefs.getString(_kReadingMode) ?? 'Vertical';
+
+    // Migrate old reading mode values.
+    final storedMode = _prefs.getString(_kReadingMode);
+    if (storedMode == 'Vertical') {
+      readingMode = 'Scrolling';
+      await _prefs.setString(_kReadingMode, 'Scrolling');
+    } else if (storedMode == 'Horizontal') {
+      readingMode = 'Paged';
+      await _prefs.setString(_kReadingMode, 'Paged');
+    } else {
+      readingMode = storedMode ?? 'Scrolling';
+    }
+
     horizontalDirection =
         _prefs.getString(_kHorizontalDirection) ?? 'Left to right';
     lineHeight = _prefs.getDouble(_kLineHeight) ?? 1.6;
@@ -77,6 +103,14 @@ class SettingsService {
         _prefs.getString(_kContinueReadingSort) ?? 'Last opened';
     pageMargin = _prefs.getDouble(_kPageMargin) ?? 12.0;
     openLastBookOnStart = _prefs.getBool(_kOpenLastBookOnStart) ?? false;
+    readerBrightness = _prefs.getDouble(_kReaderBrightness) ?? -1;
+    fontWeight = _prefs.getDouble(_kFontWeight) ?? 400;
+    textAlign = _prefs.getString(_kTextAlign) ?? 'Justify';
+    paragraphSpacing = _prefs.getDouble(_kParagraphSpacing) ?? 16;
+    paragraphIndent = _prefs.getDouble(_kParagraphIndent) ?? 0;
+    perceptionExpander = _prefs.getBool(_kPerceptionExpander) ?? false;
+    horizontalLimiter = _prefs.getBool(_kHorizontalLimiter) ?? false;
+
     final themesJson = _prefs.getString(_kCustomThemes);
     if (themesJson != null) {
       try {
@@ -192,19 +226,61 @@ class SettingsService {
     await _prefs.setBool(_kOpenLastBookOnStart, v);
   }
 
+  Future<void> setReaderBrightness(double v) async {
+    readerBrightness = v;
+    await _prefs.setDouble(_kReaderBrightness, v);
+  }
+
+  Future<void> setFontWeight(double v) async {
+    fontWeight = v;
+    await _prefs.setDouble(_kFontWeight, v);
+  }
+
+  Future<void> setTextAlign(String v) async {
+    textAlign = v;
+    await _prefs.setString(_kTextAlign, v);
+  }
+
+  Future<void> setParagraphSpacing(double v) async {
+    paragraphSpacing = v;
+    await _prefs.setDouble(_kParagraphSpacing, v);
+  }
+
+  Future<void> setParagraphIndent(double v) async {
+    paragraphIndent = v;
+    await _prefs.setDouble(_kParagraphIndent, v);
+  }
+
+  Future<void> setPerceptionExpander(bool v) async {
+    perceptionExpander = v;
+    await _prefs.setBool(_kPerceptionExpander, v);
+  }
+
+  Future<void> setHorizontalLimiter(bool v) async {
+    horizontalLimiter = v;
+    await _prefs.setBool(_kHorizontalLimiter, v);
+  }
+
   /// Restore every Reading-section option to its default and persist.
   /// Custom themes/fonts are kept; only selections revert.
   Future<void> resetReadingOptions() async {
     await setFontFamily('Serif');
     await setFontSize(17);
     await setLineHeight(1.6);
+    await setFontWeight(400);
+    await setTextAlign('Justify');
+    await setParagraphSpacing(16);
+    await setParagraphIndent(0);
     await setReadingTheme('Sepia');
     await setPageTurnStyle('Tap & swipe');
     await setKeepScreenAwake(true);
-    await setReadingMode('Vertical');
+    await setReadingMode('Scrolling');
     await setHorizontalDirection('Left to right');
     await setVolumeKeysTurnPages(true);
     await setPageMargin(12.0);
+    await setReaderBrightness(-1);
+    await setPerceptionExpander(false);
+    await setHorizontalLimiter(false);
   }
 }
 

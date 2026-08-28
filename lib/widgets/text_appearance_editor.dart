@@ -11,8 +11,13 @@ Future<bool> showTextAppearanceEditor(
   required String fontFamily,
   required double fontSize,
   required double lineHeight,
+  required double fontWeight,
+  required String textAlign,
+  required double paragraphSpacing,
+  required double paragraphIndent,
   ReaderTheme? previewTheme,
-  required void Function(String fontFamily, double fontSize, double lineHeight)
+  required void Function(String fontFamily, double fontSize, double lineHeight,
+          double fontWeight, String textAlign, double paragraphSpacing, double paragraphIndent)
       onApply,
 }) {
   return showModalBottomSheet<bool>(
@@ -26,6 +31,10 @@ Future<bool> showTextAppearanceEditor(
       initialFamily: fontFamily,
       initialSize: fontSize,
       initialSpacing: lineHeight,
+      initialWeight: fontWeight,
+      initialAlign: textAlign,
+      initialParagraphSpacing: paragraphSpacing,
+      initialParagraphIndent: paragraphIndent,
       previewTheme: previewTheme ?? readerThemes['Sepia']!,
       onApply: onApply,
     ),
@@ -36,14 +45,23 @@ class _TextAppearanceEditor extends StatefulWidget {
   final String initialFamily;
   final double initialSize;
   final double initialSpacing;
+  final double initialWeight;
+  final String initialAlign;
+  final double initialParagraphSpacing;
+  final double initialParagraphIndent;
   final ReaderTheme previewTheme;
-  final void Function(String fontFamily, double fontSize, double lineHeight)
+  final void Function(String fontFamily, double fontSize, double lineHeight,
+          double fontWeight, String textAlign, double paragraphSpacing, double paragraphIndent)
       onApply;
 
   const _TextAppearanceEditor({
     required this.initialFamily,
     required this.initialSize,
     required this.initialSpacing,
+    required this.initialWeight,
+    required this.initialAlign,
+    required this.initialParagraphSpacing,
+    required this.initialParagraphIndent,
     required this.previewTheme,
     required this.onApply,
   });
@@ -56,6 +74,22 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
   late String _family = widget.initialFamily;
   late double _size = widget.initialSize;
   late double _spacing = widget.initialSpacing;
+  late double _weight = widget.initialWeight;
+  late String _align = widget.initialAlign;
+  late double _paraSpacing = widget.initialParagraphSpacing;
+  late double _paraIndent = widget.initialParagraphIndent;
+
+  TextAlign _textAlign() => switch (_align) {
+        'Left' => TextAlign.left,
+        'Center' => TextAlign.center,
+        'Right' => TextAlign.right,
+        _ => TextAlign.justify,
+      };
+
+  FontWeight _fontWeight() => FontWeight.values
+      .where((w) => w.value == _weight.round())
+      .firstOrNull ??
+      FontWeight.w400;
 
   @override
   Widget build(BuildContext context) {
@@ -67,10 +101,11 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
           text,
           maxLines: heading ? 1 : 4,
           overflow: TextOverflow.ellipsis,
+          textAlign: heading ? TextAlign.left : _textAlign(),
           style: TextStyle(
             fontSize: heading ? _size + 3 : _size,
             height: _spacing,
-            fontWeight: heading ? FontWeight.w700 : FontWeight.w400,
+            fontWeight: heading ? FontWeight.w700 : _fontWeight(),
             fontFamily: _resolvedFamily(),
             color: heading ? rt.text : rt.text.withValues(alpha: 0.92),
           ),
@@ -100,8 +135,6 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
             ),
             const SizedBox(height: 12),
             // ---------- Live preview ----------
-            // Fixed height so slider adjustments never push the controls
-            // below up/down; overflow is clipped instead.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
@@ -182,43 +215,24 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _sectionLabel(theme, 'Font size'),
-                          Text('${_size.round()}pt',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.primary)),
-                        ]),
-                    Slider(
-                      value: _size.clamp(13, 24),
-                      min: 13,
-                      max: 24,
-                      divisions: 11,
-                      activeColor: theme.colorScheme.primary,
-                      onChanged: (v) => setState(() => _size = v),
-                    ),
+                    _buildSlider(theme, 'Font size', _size, 13, 24, 11,
+                        '${_size.round()}pt', (v) => _size = v),
                     const SizedBox(height: 4),
-                    Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _sectionLabel(theme, 'Line spacing'),
-                          Text('${_spacing.toStringAsFixed(1)}x',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.primary)),
-                        ]),
-                    Slider(
-                      value: _spacing.clamp(1.0, 2.5),
-                      min: 1.0,
-                      max: 2.5,
-                      divisions: 15,
-                      activeColor: theme.colorScheme.primary,
-                      onChanged: (v) => setState(() => _spacing = v),
-                    ),
+                    _buildSlider(theme, 'Line spacing', _spacing, 1.0, 2.5, 15,
+                        '${_spacing.toStringAsFixed(1)}x', (v) => _spacing = v),
+                    const SizedBox(height: 4),
+                    _buildSlider(theme, 'Font weight', _weight, 100, 700, 6,
+                        _weightName(_weight), (v) => _weight = v),
+                    const SizedBox(height: 12),
+                    _sectionLabel(theme, 'Text alignment'),
+                    const SizedBox(height: 6),
+                    _buildAlignRow(theme),
+                    const SizedBox(height: 12),
+                    _buildSlider(theme, 'Paragraph spacing', _paraSpacing, 0, 40, 20,
+                        '${_paraSpacing.round()}', (v) => _paraSpacing = v),
+                    const SizedBox(height: 4),
+                    _buildSlider(theme, 'First-line indent', _paraIndent, 0, 60, 12,
+                        '${_paraIndent.round()}', (v) => _paraIndent = v),
                   ],
                 ),
               ),
@@ -238,7 +252,8 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: () {
-                      widget.onApply(_family, _size, _spacing);
+                      widget.onApply(_family, _size, _spacing, _weight,
+                          _align, _paraSpacing, _paraIndent);
                       Navigator.pop(context, true);
                     },
                     icon: const Icon(Icons.check, size: 18),
@@ -252,6 +267,81 @@ class _TextAppearanceEditorState extends State<_TextAppearanceEditor> {
       ),
     );
   }
+
+  Widget _buildSlider(ThemeData theme, String label, double value, double min,
+      double max, int divisions, String display, ValueChanged<double> onChanged) {
+    return Column(children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        _sectionLabel(theme, label),
+        Text(display,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary)),
+      ]),
+      Slider(
+        value: value.clamp(min, max),
+        min: min,
+        max: max,
+        divisions: divisions,
+        activeColor: theme.colorScheme.primary,
+        onChanged: (v) => setState(() => onChanged(v)),
+      ),
+    ]);
+  }
+
+  Widget _buildAlignRow(ThemeData theme) {
+    final options = [
+      ('Left', Icons.format_align_left),
+      ('Justify', Icons.format_align_justify),
+      ('Center', Icons.format_align_center),
+      ('Right', Icons.format_align_right),
+    ];
+    return Row(
+      children: options.map((o) {
+        final selected = o.$1 == _align;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: GestureDetector(
+              onTap: () => setState(() => _align = o.$1),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? theme.colorScheme.primaryContainer
+                      : theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outlineVariant,
+                    width: selected ? 1.2 : 0.5,
+                  ),
+                ),
+                child: Icon(o.$2, size: 18,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  String _weightName(double w) => switch (w.round()) {
+        100 => 'Thin',
+        200 => 'Extra Light',
+        300 => 'Light',
+        400 => 'Normal',
+        500 => 'Medium',
+        600 => 'SemiBold',
+        700 => 'Bold',
+        _ => '${w.round()}',
+      };
 
   String _resolvedFamily() =>
       fontService.resolveFamily(_family, readerFontFamilies);

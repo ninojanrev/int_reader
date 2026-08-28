@@ -12,11 +12,17 @@ class ReaderSettingsSheet extends StatelessWidget {
   final String horizontalDirection;
   final double pageMargin;
   final String textSummary;
+  final double readerBrightness;
+  final bool perceptionExpander;
+  final bool horizontalLimiter;
   final ValueChanged<String> onReadingThemeChanged;
   final VoidCallback onEditTextAppearance;
   final ValueChanged<String> onReadingModeChanged;
   final ValueChanged<String> onHorizontalDirectionChanged;
   final ValueChanged<double> onPageMarginChanged;
+  final ValueChanged<double> onBrightnessChanged;
+  final ValueChanged<bool> onPerceptionExpanderChanged;
+  final ValueChanged<bool> onHorizontalLimiterChanged;
 
   const ReaderSettingsSheet({
     super.key,
@@ -25,11 +31,17 @@ class ReaderSettingsSheet extends StatelessWidget {
     required this.horizontalDirection,
     required this.pageMargin,
     required this.textSummary,
+    required this.readerBrightness,
+    required this.perceptionExpander,
+    required this.horizontalLimiter,
     required this.onReadingThemeChanged,
     required this.onEditTextAppearance,
     required this.onReadingModeChanged,
     required this.onHorizontalDirectionChanged,
     required this.onPageMarginChanged,
+    required this.onBrightnessChanged,
+    required this.onPerceptionExpanderChanged,
+    required this.onHorizontalLimiterChanged,
   });
 
   @override
@@ -61,12 +73,24 @@ class ReaderSettingsSheet extends StatelessWidget {
             const Text('Layout', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 14),
             _buildModeRow(context),
-            if (readingMode == 'Horizontal') ...[
+            if (readingMode == 'Paged') ...[
               const SizedBox(height: 16),
               _buildDirectionRow(context),
               const SizedBox(height: 16),
               _buildPageMarginRow(context),
             ],
+            const SizedBox(height: 16),
+            _buildBrightnessRow(context),
+            const SizedBox(height: 20),
+            const Text('Reading aids', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 14),
+            _buildSwitchRow(context, 'Perception expander',
+                'Vertical guide lines that narrow the reading focus',
+                perceptionExpander, onPerceptionExpanderChanged),
+            const SizedBox(height: 12),
+            _buildSwitchRow(context, 'Reading ruler',
+                'Horizontal band that limits the visible reading area',
+                horizontalLimiter, onHorizontalLimiterChanged),
           ],
         ),
       ),
@@ -122,7 +146,7 @@ class ReaderSettingsSheet extends StatelessWidget {
     return _buildSegmented(
       context: context,
       label: 'Reading mode',
-      options: ['Vertical', 'Horizontal'],
+      options: ['Scrolling', 'Paged'],
       selected: readingMode,
       onSelected: onReadingModeChanged,
     );
@@ -214,6 +238,71 @@ class ReaderSettingsSheet extends StatelessWidget {
     ]);
   }
 
+  Widget _buildBrightnessRow(BuildContext context) {
+    final theme = Theme.of(context);
+    final isAuto = readerBrightness < 0;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _sheetLabel(context, 'Brightness'),
+          GestureDetector(
+            onTap: () => onBrightnessChanged(-1),
+            child: Text(
+              isAuto ? 'Auto' : 'Manual',
+              style: TextStyle(
+                fontSize: 11,
+                color: isAuto ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                fontWeight: isAuto ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 2,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        ),
+      child: Slider(
+        value: isAuto ? 0.5 : readerBrightness.clamp(0.0, 1.0),
+        min: 0,
+        max: 1,
+        divisions: 20,
+        activeColor: theme.colorScheme.primary,
+        onChanged: (v) => onBrightnessChanged(v),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _buildSwitchRow(BuildContext context, String label, String description,
+      bool value, ValueChanged<bool> onChanged) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(
+                  fontSize: 13, color: theme.colorScheme.onSurface)),
+              const SizedBox(height: 2),
+              Text(description, style: TextStyle(
+                  fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeColor: theme.colorScheme.primary,
+        ),
+      ],
+    );
+  }
+
   Widget _buildPageMarginRow(BuildContext context) {
     final theme = Theme.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -242,7 +331,6 @@ class ReaderSettingsSheet extends StatelessWidget {
           max: 40,
           divisions: 20,
           activeColor: theme.colorScheme.primary,
-          inactiveColor: theme.colorScheme.surfaceContainerHighest,
           onChanged: onPageMarginChanged,
         ),
       ),

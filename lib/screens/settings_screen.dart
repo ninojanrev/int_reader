@@ -13,6 +13,19 @@ import '../services/settings_service.dart';
 import 'category_manage_screen.dart';
 import 'theme_editor_screen.dart';
 
+String _fontWeightLabel(double fontWeight) {
+  switch (fontWeight.round()) {
+    case 100: return 'Thin';
+    case 200: return 'ExtraLight';
+    case 300: return 'Light';
+    case 400: return 'Normal';
+    case 500: return 'Medium';
+    case 600: return 'SemiBold';
+    case 700: return 'Bold';
+    default: return 'Normal';
+  }
+}
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -352,6 +365,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsRow(icon: Icons.text_format, label: 'Text appearance',
               trailing:
                   '${settings.fontFamily} \u00b7 ${settings.fontSize.round()}pt '
+                  '\u00b7 ${_fontWeightLabel(settings.fontWeight)} '
+                  '\u00b7 ${settings.textAlign[0].toUpperCase()}${settings.textAlign.substring(1)} '
                   '\u00b7 ${settings.lineHeight.toStringAsFixed(1)}x',
               onTap: () async {
                 final applied = await showTextAppearanceEditor(
@@ -359,12 +374,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontFamily: settings.fontFamily,
                   fontSize: settings.fontSize,
                   lineHeight: settings.lineHeight,
+                  fontWeight: settings.fontWeight,
+                  textAlign: settings.textAlign,
+                  paragraphSpacing: settings.paragraphSpacing,
+                  paragraphIndent: settings.paragraphIndent,
                   previewTheme: ThemeCatalog.fromSettings(settings)
                       .resolve(settings.readingTheme),
-                  onApply: (f, s, l) {
+                  onApply: (f, s, l, w, a, ps, pi) {
                     settings.setFontFamily(f);
                     settings.setFontSize(s);
                     settings.setLineHeight(l);
+                    settings.setFontWeight(w);
+                    settings.setTextAlign(a);
+                    settings.setParagraphSpacing(ps);
+                    settings.setParagraphIndent(pi);
                   },
                 );
                 if (applied) setState(() {});
@@ -395,10 +418,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsRow(icon: Icons.swap_vert, label: 'Reading mode',
               trailing: settings.readingMode,
               onTap: () => _showOptionsPicker(
-                title: 'Reading mode', options: ['Vertical', 'Horizontal'],
+                title: 'Reading mode', options: ['Scrolling', 'Paged'],
                 currentValue: settings.readingMode,
                 onSelected: (val) { setState(() {}); settings.setReadingMode(val); })),
-            if (settings.readingMode == 'Horizontal')
+            if (settings.readingMode == 'Paged')
               _SettingsRow(icon: Icons.swap_horiz, label: 'Flip direction',
                 trailing: settings.horizontalDirection,
                 onTap: () => _showOptionsPicker(

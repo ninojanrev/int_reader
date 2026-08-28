@@ -23,7 +23,7 @@ class BookLoadingScreen extends StatefulWidget {
 }
 
 class _BookLoadingScreenState extends State<BookLoadingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _rippleCtrl;
   late final AnimationController _pulseCtrl;
 

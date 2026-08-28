@@ -26,6 +26,8 @@ import '../widgets/reader_toc_sheet.dart';
 import '../widgets/text_appearance_editor.dart';
 import '../widgets/reader_search_bar.dart';
 import '../widgets/book_loading_screen.dart';
+import '../widgets/perception_expander.dart';
+import '../widgets/horizontal_limiter.dart';
 import '../services/search_index.dart';
 import 'book_info_screen.dart';
 
@@ -51,6 +53,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   String _readingTheme = 'Sepia';
   double _lineHeight = 1.6;
   double _pageMargin = 12.0;
+  double _fontWeight = 400;
+  String _textAlign = 'Justify';
+  double _paragraphSpacing = 16;
+  double _paragraphIndent = 0;
+  bool _perceptionExpander = false;
+  bool _horizontalLimiter = false;
   late String _readingMode;
   late String _horizontalDirection;
 
@@ -124,7 +132,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   String get _clockText =>
       '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}';
 
-  bool get _isHorizontal => _readingMode == 'Horizontal';
+  bool get _isHorizontal => _readingMode == 'Paged';
   int get _totalPages => _pages.length;
   double get _contentW => (_viewportW - 48).clamp(50.0, _viewportW);
   double get _sliceContentH => (_viewportH - _pageMargin * 2).clamp(100.0, _viewportH);
@@ -245,6 +253,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     _readingTheme = settings.readingTheme;
     _lineHeight = settings.lineHeight;
     _pageMargin = settings.pageMargin;
+    _fontWeight = settings.fontWeight;
+    _textAlign = settings.textAlign;
+    _paragraphSpacing = settings.paragraphSpacing;
+    _paragraphIndent = settings.paragraphIndent;
+    _perceptionExpander = settings.perceptionExpander;
+    _horizontalLimiter = settings.horizontalLimiter;
     _readingMode = settings.readingMode;
     _horizontalDirection = settings.horizontalDirection;
     final startChapter =
@@ -983,7 +997,10 @@ class _ReaderScreenState extends State<ReaderScreen>
               horizontalDirection: _horizontalDirection,
               pageMargin: _pageMargin,
               textSummary:
-                  '$_fontFamily \u00b7 ${_fontSize.round()}pt \u00b7 ${_lineHeight.toStringAsFixed(1)}x',
+                  '$_fontFamily \u00b7 ${_fontSize.round()}pt \u00b7 ${_fontWeightLabel()} \u00b7 ${_textAlignLabel()} \u00b7 ${_lineHeight.toStringAsFixed(1)}x',
+              readerBrightness: settings.readerBrightness,
+              perceptionExpander: _perceptionExpander,
+              horizontalLimiter: _horizontalLimiter,
               onEditTextAppearance: () {
                 Navigator.pop(sheetContext);
                 _openTextAppearanceEditor();
@@ -996,7 +1013,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               onReadingModeChanged: (val) {
                 setState(() {
                   _readingMode = val;
-                  if (val != 'Horizontal') _currentSlice = 0;
+                  if (val != 'Paged') _currentSlice = 0;
                   _pagesMeasured = false;
                   _measureScheduled = false;
                   _sliceContentCache.clear();
@@ -1017,6 +1034,20 @@ class _ReaderScreenState extends State<ReaderScreen>
                 _scheduleRemasure();
                 setSheetState(() {});
               },
+              onBrightnessChanged: (val) {
+                settings.setReaderBrightness(val);
+                setSheetState(() {});
+              },
+              onPerceptionExpanderChanged: (val) {
+                setState(() => _perceptionExpander = val);
+                settings.setPerceptionExpander(val);
+                setSheetState(() {});
+              },
+              onHorizontalLimiterChanged: (val) {
+                setState(() => _horizontalLimiter = val);
+                settings.setHorizontalLimiter(val);
+                setSheetState(() {});
+              },
             );
           },
         );
@@ -1033,16 +1064,27 @@ class _ReaderScreenState extends State<ReaderScreen>
       fontFamily: _fontFamily,
       fontSize: _fontSize,
       lineHeight: _lineHeight,
+      fontWeight: _fontWeight,
+      textAlign: _textAlign,
+      paragraphSpacing: _paragraphSpacing,
+      paragraphIndent: _paragraphIndent,
       previewTheme: _resolvedTheme,
-      onApply: (family, size, spacing) {
+      onApply: (family, size, spacing, weight, align, paraSpacing, paraIndent) {
         settings.setFontFamily(family);
         settings.setFontSize(size);
         settings.setLineHeight(spacing);
-        // Reader state updates only on Apply.
+        settings.setFontWeight(weight);
+        settings.setTextAlign(align);
+        settings.setParagraphSpacing(paraSpacing);
+        settings.setParagraphIndent(paraIndent);
         setState(() {
           _fontFamily = family;
           _fontSize = size;
           _lineHeight = spacing;
+          _fontWeight = weight;
+          _textAlign = align;
+          _paragraphSpacing = paraSpacing;
+          _paragraphIndent = paraIndent;
         });
       },
     );
@@ -1091,6 +1133,41 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  TextAlign _textAlignValue() => switch (_textAlign) {
+        'Left' => TextAlign.left,
+        'Center' => TextAlign.center,
+        'Right' => TextAlign.right,
+        _ => TextAlign.justify,
+      };
+
+  FontWeight _fontWeightValue() => FontWeight.values
+      .where((w) => w.value == _fontWeight.round())
+      .firstOrNull ??
+      FontWeight.w400;
+
+  String _fontWeightLabel() {
+    switch (_fontWeight.round()) {
+      case 100: return 'Thin';
+      case 200: return 'ExtraLight';
+      case 300: return 'Light';
+      case 400: return 'Normal';
+      case 500: return 'Medium';
+      case 600: return 'SemiBold';
+      case 700: return 'Bold';
+      default: return 'Normal';
+    }
+  }
+
+  String _textAlignLabel() {
+    switch (_textAlign) {
+      case 'left': return 'Left';
+      case 'justify': return 'Justify';
+      case 'center': return 'Center';
+      case 'right': return 'Right';
+      default: return 'Justify';
+    }
+  }
+
   Widget _styledHtml(String htmlContent, ReaderTheme theme) {
     final data = (_searchActive && _committedHighlightQuery.length >= 2)
         ? highlightHtmlOccurrences(htmlContent, _committedHighlightQuery)
@@ -1101,11 +1178,15 @@ class _ReaderScreenState extends State<ReaderScreen>
         'body': Style(
           fontFamily: _resolvedFontFamily,
           fontSize: FontSize(_fontSize),
+          fontWeight: _fontWeightValue(),
           lineHeight: LineHeight.number(_lineHeight),
+          textAlign: _textAlignValue(),
           color: theme.text,
           margin: Margins.all(0),
         ),
-        'p': Style(margin: Margins.only(bottom: 16)),
+        'p': Style(
+          margin: Margins.only(bottom: _paragraphSpacing),
+        ),
         'h1': Style(margin: Margins.only(bottom: 12), fontWeight: FontWeight.bold),
         'h2': Style(margin: Margins.only(bottom: 10), fontWeight: FontWeight.bold),
         'h3': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
@@ -1308,6 +1389,17 @@ class _ReaderScreenState extends State<ReaderScreen>
               },
               child: _buildReaderBody(theme),
             ),
+            // Reading aids overlays (below chrome, above content).
+            if (_perceptionExpander)
+              Positioned.fill(child: PerceptionExpander(
+                padding: _pageMargin + 32,
+                color: theme.text.withValues(alpha: 0.08),
+              )),
+            if (_horizontalLimiter)
+              Positioned.fill(child: HorizontalLimiter(
+                bandHeight: 160,
+                dimColor: theme.text.withValues(alpha: 0.12),
+              )),
             // Find-bar replaces the top chrome while searching.
             if (_searchActive)
               Positioned(
@@ -1447,10 +1539,24 @@ class _ReaderScreenState extends State<ReaderScreen>
       right: 0,
       child: SafeArea(
         bottom: false,
-        child: Container(
-          color: theme.chrome,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(children: [
+        child: GestureDetector(
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
+            if (velocity.abs() < 300) return;
+            final choices = ThemeCatalog.fromSettings(settings).choices();
+            if (choices.isEmpty) return;
+            final currentIdx = choices.indexWhere((c) => c.key == _readingTheme);
+            final nextIdx = velocity < 0
+                ? (currentIdx + 1) % choices.length
+                : (currentIdx - 1 + choices.length) % choices.length;
+            final next = choices[nextIdx];
+            setState(() => _readingTheme = next.key);
+            settings.setReadingTheme(next.key);
+          },
+          child: Container(
+            color: theme.chrome,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(children: [
             IconButton(
                 icon: Icon(Icons.arrow_back, color: theme.text),
                 onPressed: () => Navigator.of(context).maybePop()),
@@ -1483,6 +1589,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   );
                 }),
           ]),
+        ),
         ),
       ),
     );
