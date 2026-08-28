@@ -185,8 +185,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// instance in two Element positions steals the render object, blanking
   /// the other page. Caching happens per-slot instead (see caches above).
   /// Joined HTML for one horizontal page (single Html widget per page).
-  /// Combined rendered height of fragments [first..last] within a chapter,
-  /// accounting for CSS margin collapse between adjacent <p> elements.
+  /// Combined rendered height of fragments [first..last] within a chapter.
+  /// Each fragment is a separate widget in a Column, so no CSS margin
+  /// collapse occurs between fragments — just sum their measured heights.
   /// [base] is the chapter's offset into [flatHeights].
   double _combinedHeightForPage(
       int chapterIdx, int first, int last, List<double> flatHeights, int base) {
@@ -194,15 +195,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     var total = 0.0;
     for (var i = first; i <= last && i < frags.length; i++) {
       total += flatHeights[base + i];
-    }
-    // Subtract collapsed margins: when a fragment ends with </p> and the
-    // next starts with <p, their adjacent <p> margins merge (lose 16px).
-    for (var i = first; i < last && i < frags.length - 1; i++) {
-      final endTag = frags[i].trimRight();
-      final startTag = frags[i + 1].trimLeft();
-      if (endTag.endsWith('</p>') && startTag.startsWith('<p')) {
-        total -= 16.0;
-      }
     }
     return total;
   }
