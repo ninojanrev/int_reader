@@ -417,3 +417,19 @@ Future<ParsedEpub> parseEpubInIsolate(String filePath) async {
   return epubParser.parseFile(filePath);
 }
 
+/// Top-level function for use with [compute]. Inlines images into chapter
+/// HTML in a background isolate to avoid blocking the UI thread.
+///
+/// [args] is a list: [String htmlContent, Map<String, List<int>> images]
+String inlineImagesInIsolate(List<dynamic> args) {
+  final html = args[0] as String;
+  final images = (args[1] as Map).cast<String, List<int>>();
+  return EpubParserService.inlineImages(html, images);
+}
+
+/// Top-level function for use with [compute]. Fragments chapter HTML in a
+/// background isolate to avoid blocking the UI thread.
+List<String> fragmentChapterInIsolate(String html) {
+  return EpubParserService.chapterFragments(html);
+}
+

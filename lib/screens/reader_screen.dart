@@ -25,7 +25,6 @@ import '../providers/library_provider.dart';
 import '../widgets/reader_toc_sheet.dart';
 import '../widgets/text_appearance_editor.dart';
 import '../widgets/reader_search_bar.dart';
-import '../widgets/book_loading_screen.dart';
 import '../widgets/perception_expander.dart';
 import '../widgets/horizontal_limiter.dart';
 import '../services/search_index.dart';
@@ -92,6 +91,11 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   // Rendered-content caches (invalidated when text metrics change).
   final Map<int, List<String>> _fragmentsCache = {};
+  // Precomputed data from background pre-fragmentation.
+  final Map<int, String> _precomputedInlinedHtml = {};
+  final Map<int, List<String>> _precomputedFragments = {};
+  final Map<int, List<String>> _precomputedVerticalFragments = {};
+  bool _preFragmentInProgress = false;
 
   // Per-slot page caches: each horizontal page index / vertical chapter
   // owns its OWN widget instances, so two live slots can never share and
@@ -165,6 +169,9 @@ class _ReaderScreenState extends State<ReaderScreen>
           : null;
 
   List<String> _fragmentsFor(int chapterIdx) {
+    // Use precomputed fragments if available (from background pre-fragmentation).
+    final precomputed = _precomputedFragments[chapterIdx];
+    if (precomputed != null) return precomputed;
     return _fragmentsCache.putIfAbsent(chapterIdx, () {
       final html = _htmlFor(_chapters[chapterIdx]);
       final frags = EpubParserService.chapterFragments(html);
@@ -180,6 +187,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// merging) so paragraphs flow exactly as authored — no mid-sentence
   /// seams between list items. ListView handles tall items fine.
   List<String> _verticalFragmentsFor(int chapterIdx) {
+    // Use precomputed vertical fragments if available.
+    final precomputed = _precomputedVerticalFragments[chapterIdx];
+    if (precomputed != null) return precomputed;
     return _verticalFragmentsCache.putIfAbsent(chapterIdx, () {
       final html = _htmlFor(_chapters[chapterIdx]);
       final blocks = EpubParserService.chapterBlocksForScrolling(html);
@@ -401,11 +411,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     try {
       ParsedEpub parsed;
 
-      // Try loading from disk cache first (instant). Falls back to
-      // full EPUB parsing in a background isolate for books imported
-      // before caching was added.
+      // Try loading from disk cache first. Runs in a background isolate
+      // with parallel I/O for fast startup.
       if (await bookCache.hasCache(widget.book.id)) {
-        parsed = await bookCache.load(widget.book.id) as ParsedEpub;
+        final cachePath = await bookCache.cacheDirPath(widget.book.id);
+        parsed = await compute(loadBookFromDisk, cachePath) as ParsedEpub;
       } else {
         parsed = await compute(parseEpubInIsolate, widget.book.filePath);
       }
@@ -434,6 +444,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         _restoreCurrentPageAfterLayoutChange();
       }
       // Horizontal mode jumps after the measurement pass completes.
+      // Pre-fragment remaining chapters in the background for instant page turns.
+      _preFragmentAllChapters();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -442,6 +454,46 @@ class _ReaderScreenState extends State<ReaderScreen>
         });
       }
     }
+  }
+
+  /// Pre-fragment all remaining chapters in the background so page turns
+  /// are instant. Runs after the initial chapter is rendered.
+  Future<void> _preFragmentAllChapters() async {
+    if (_preFragmentInProgress || _parsedEpub == null) return;
+    _preFragmentInProgress = true;
+    final images = _parsedEpub!.images;
+    final chapters = _parsedEpub!.chapters;
+
+    // Process chapters in batches of 5 to avoid overwhelming the system.
+    for (var i = 0; i < chapters.length; i += 5) {
+      if (!mounted) return;
+      final batchEnd = (i + 5).clamp(0, chapters.length);
+      final batchFutures = <Future>[];
+
+      for (var j = i; j < batchEnd; j++) {
+        if (_precomputedInlinedHtml.containsKey(j)) continue;
+        final ch = chapters[j];
+        batchFutures.add(() async {
+          // Inline images in a background isolate.
+          final inlined = await compute(
+            inlineImagesInIsolate,
+            [ch.htmlContent, images],
+          );
+          if (!mounted) return;
+          _precomputedInlinedHtml[j] = inlined;
+
+          // Fragment for both horizontal and vertical modes in parallel.
+          final horizontalFrags = compute(fragmentChapterInIsolate, inlined);
+          final verticalFrags = compute(fragmentChapterInIsolate, inlined);
+          final results = await Future.wait([horizontalFrags, verticalFrags]);
+          if (!mounted) return;
+          _precomputedFragments[j] = results[0];
+          _precomputedVerticalFragments[j] = results[1];
+        }());
+      }
+      await Future.wait(batchFutures);
+    }
+    _preFragmentInProgress = false;
   }
 
   /// Jump the PageView back to the stored location once laid out.
@@ -1221,6 +1273,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   String _htmlFor(ParsedChapter chapter) {
+    // Use precomputed inlined HTML if available (from background pre-fragmentation).
+    final precomputed = _precomputedInlinedHtml[chapter.index];
+    if (precomputed != null) return precomputed;
     return _inlinedHtmlCache.putIfAbsent(
       chapter.index,
       () => EpubParserService.inlineImages(
@@ -1334,10 +1389,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     final theme = _resolvedTheme;
 
     if (_isLoading) {
-      return BookLoadingScreen(
-        bookTitle: widget.book.title,
-        coverImagePath: widget.book.coverImagePath,
-        theme: theme,
+      return Scaffold(
+        backgroundColor: theme.background,
+        body: Center(
+          child: CircularProgressIndicator(color: theme.text.withValues(alpha: 0.4)),
+        ),
       );
     }
     if (_loadError != null) {

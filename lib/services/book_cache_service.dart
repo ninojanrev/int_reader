@@ -4,6 +4,55 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/chapter.dart';
 
+/// Top-level entry point for loading a cached book in a background isolate.
+/// [cacheDirPath] is the full path to the book's cache directory.
+Future<ParsedEpub?> loadBookFromDisk(String cacheDirPath) async {
+  final dir = Directory(cacheDirPath);
+  final metaFile = File(p.join(dir.path, 'meta.json'));
+  if (!await metaFile.exists()) return null;
+
+  final manifest =
+      jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+
+  // Load chapters in parallel.
+  final chaptersDir = Directory(p.join(dir.path, 'chapters'));
+  final chapterManifest = manifest['chapters'] as List;
+  final chapterFutures = chapterManifest.map((entry) async {
+    final index = entry['index'] as int;
+    final title = entry['title'] as String;
+    final file = File(p.join(chaptersDir.path, '$index.html'));
+    final htmlContent = await file.readAsString();
+    return ParsedChapter(title: title, htmlContent: htmlContent, index: index);
+  }).toList();
+  final chapters = await Future.wait(chapterFutures);
+
+  // Load images in parallel.
+  final images = <String, List<int>>{};
+  final imageKeys = (manifest['imageKeys'] as List).cast<String>();
+  if (imageKeys.isNotEmpty) {
+    final imagesDir = Directory(p.join(dir.path, 'images'));
+    final imageFutures = imageKeys.map((key) async {
+      final safeName = key.replaceAll(RegExp(r'[/\\]'), '_');
+      final file = File(p.join(imagesDir.path, safeName));
+      if (await file.exists()) {
+        return MapEntry(key, await file.readAsBytes());
+      }
+      return null;
+    }).toList();
+    final results = await Future.wait(imageFutures);
+    for (final entry in results) {
+      if (entry != null) images[entry.key] = entry.value;
+    }
+  }
+
+  return ParsedEpub(
+    title: manifest['title'] as String,
+    author: manifest['author'] as String?,
+    chapters: chapters,
+    images: images,
+  );
+}
+
 /// On-disk cache for parsed book content. During import, chapters and
 /// embedded images are saved to a per-book directory so the reader can
 /// load them instantly without re-parsing the EPUB/ZIP.
@@ -21,6 +70,12 @@ class BookCacheService {
   Future<Directory> cacheDirFor(String bookId) async {
     final root = await _cacheRoot();
     return Directory(p.join(root.path, bookId));
+  }
+
+  /// Resolved cache directory path for [bookId] (for use with compute).
+  Future<String> cacheDirPath(String bookId) async {
+    final dir = await cacheDirFor(bookId);
+    return dir.path;
   }
 
   /// True when a valid cache exists for [bookId].
@@ -73,53 +128,6 @@ class BookCacheService {
     };
     final metaFile = File(p.join(dir.path, 'meta.json'));
     await metaFile.writeAsString(jsonEncode(manifest));
-  }
-
-  /// Load cached content for [bookId]. Returns `null` when no cache exists.
-  Future<ParsedEpub?> load(String bookId) async {
-    final dir = await cacheDirFor(bookId);
-    final metaFile = File(p.join(dir.path, 'meta.json'));
-    if (!await metaFile.exists()) return null;
-
-    final manifest =
-        jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-
-    // Load chapters
-    final chaptersDir = Directory(p.join(dir.path, 'chapters'));
-    final chapterManifest = manifest['chapters'] as List;
-    final chapters = <ParsedChapter>[];
-    for (final entry in chapterManifest) {
-      final index = entry['index'] as int;
-      final title = entry['title'] as String;
-      final file = File(p.join(chaptersDir.path, '$index.html'));
-      final htmlContent = await file.readAsString();
-      chapters.add(ParsedChapter(
-        title: title,
-        htmlContent: htmlContent,
-        index: index,
-      ));
-    }
-
-    // Load images
-    final images = <String, List<int>>{};
-    final imageKeys = (manifest['imageKeys'] as List).cast<String>();
-    if (imageKeys.isNotEmpty) {
-      final imagesDir = Directory(p.join(dir.path, 'images'));
-      for (final key in imageKeys) {
-        final safeName = key.replaceAll(RegExp(r'[/\\]'), '_');
-        final file = File(p.join(imagesDir.path, safeName));
-        if (await file.exists()) {
-          images[key] = await file.readAsBytes();
-        }
-      }
-    }
-
-    return ParsedEpub(
-      title: manifest['title'] as String,
-      author: manifest['author'] as String?,
-      chapters: chapters,
-      images: images,
-    );
   }
 
   /// Delete the cache for [bookId].
