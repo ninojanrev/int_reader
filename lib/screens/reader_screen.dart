@@ -24,6 +24,7 @@ import '../providers/library_provider.dart';
 import '../widgets/reader_toc_sheet.dart';
 import '../widgets/text_appearance_editor.dart';
 import '../widgets/reader_search_bar.dart';
+import '../widgets/book_loading_screen.dart';
 import '../services/search_index.dart';
 import 'book_info_screen.dart';
 
@@ -1220,9 +1221,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final theme = _resolvedTheme;
 
     if (_isLoading) {
-      return Scaffold(
-        backgroundColor: theme.background,
-        body: const Center(child: CircularProgressIndicator()),
+      return BookLoadingScreen(
+        bookTitle: widget.book.title,
+        coverImagePath: widget.book.coverImagePath,
+        theme: theme,
       );
     }
     if (_loadError != null) {
