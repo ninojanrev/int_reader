@@ -123,6 +123,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   List<Bookmark> _currentBookmarks = [];
 
   final ScrollController _verticalScrollController = ScrollController();
+  Timer? _scrollOffsetSaveTimer;
+  double _savedScrollOffset = 0.0; // fraction of maxScrollExtent
+  final Map<int, double> _chapterScrollOffsets = {}; // in-memory per-chapter offsets
 
   // ---- In-reader search (find in book) ----
   bool _searchActive = false;
@@ -301,6 +304,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (settings.volumeKeysTurnPages) {
       volumeKeyService.startListening(_onVolumeKey);
     }
+    _savedScrollOffset = widget.book.scrollOffset;
+    _verticalScrollController.addListener(_onVerticalScroll);
     _loadEpub();
   }
 
@@ -368,6 +373,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _progressSaveTimer?.cancel();
+      _scrollOffsetSaveTimer?.cancel();
+      _savedScrollOffset = _currentScrollOffset();
       _saveProgress();
       _flushReadingTime();
     }
@@ -391,7 +398,25 @@ class _ReaderScreenState extends State<ReaderScreen>
       progress = _progressFor(_currentPageIndex);
     }
     _library.updateProgress(
-        widget.book.id, _currentPageIndex, _currentSlice, progress);
+        widget.book.id, _currentPageIndex, _currentSlice, progress,
+        scrollOffset: _currentScrollOffset());
+  }
+
+  /// Current scroll offset as a fraction of maxScrollExtent (0.0–1.0).
+  double _currentScrollOffset() {
+    if (!_verticalScrollController.hasClients) return 0.0;
+    final max = _verticalScrollController.position.maxScrollExtent;
+    if (max <= 0) return 0.0;
+    return (_verticalScrollController.offset / max).clamp(0.0, 1.0);
+  }
+
+  void _onVerticalScroll() {
+    _scrollOffsetSaveTimer?.cancel();
+    _scrollOffsetSaveTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      _savedScrollOffset = _currentScrollOffset();
+      _saveProgress();
+    });
   }
 
   @override
@@ -400,11 +425,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     volumeKeyService.stopListening();
     _clockTimer?.cancel();
     _progressSaveTimer?.cancel();
+    _scrollOffsetSaveTimer?.cancel();
     _statsFlushTimer?.cancel();
     _remeasureDebounce?.cancel();
     _readingStopwatch.stop();
     _flushReadingTime();
     WakelockPlus.disable();
+    _savedScrollOffset = _currentScrollOffset();
     _saveProgress();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _verticalScrollController.dispose();
@@ -513,6 +540,19 @@ class _ReaderScreenState extends State<ReaderScreen>
           _isHorizontal ? _globalPageFor(_currentPageIndex, _currentSlice) : _currentPageIndex;
       if (_pageController!.page?.round() != target) {
         _pageController!.jumpToPage(target);
+      }
+      // Restore scroll offset within the chapter (scrolling mode only).
+      if (!_isHorizontal) {
+        final saved = _chapterScrollOffsets[_currentPageIndex] ?? _savedScrollOffset;
+        if (saved > 0) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !_verticalScrollController.hasClients) return;
+            final max = _verticalScrollController.position.maxScrollExtent;
+            if (max > 0) {
+              _verticalScrollController.jumpTo(saved * max);
+            }
+          });
+        }
       }
     });
   }
@@ -790,8 +830,27 @@ class _ReaderScreenState extends State<ReaderScreen>
       _currentPageIndex = loc.$1;
       _currentSlice = loc.$2;
     } else {
+      // Save scroll offset for the old chapter before switching.
+      if (!_isHorizontal && _verticalScrollController.hasClients) {
+        final max = _verticalScrollController.position.maxScrollExtent;
+        if (max > 0) {
+          _chapterScrollOffsets[_currentPageIndex] =
+              (_verticalScrollController.offset / max).clamp(0.0, 1.0);
+        }
+      }
       _currentPageIndex = page;
       _currentSlice = 0;
+      // Restore scroll offset for the new chapter after layout.
+      if (!_isHorizontal) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_verticalScrollController.hasClients) return;
+          final saved = _chapterScrollOffsets[page] ?? 0.0;
+          if (saved > 0) {
+            final max = _verticalScrollController.position.maxScrollExtent;
+            if (max > 0) _verticalScrollController.jumpTo(saved * max);
+          }
+        });
+      }
     }
     setState(() {
       _bookmarked = _bookmarkedChapters.contains(_currentPageIndex);

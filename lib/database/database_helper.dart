@@ -17,7 +17,7 @@ class DatabaseHelper {
   static Database? _database;
   static Future<Database>? _pendingInit;
   static const _dbName = 'epub_reader.db';
-  static const _dbVersion = 4;
+  static const _dbVersion = 5;
 
   /// Get the singleton database instance.
   Future<Database> get database async {
@@ -135,6 +135,11 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE categories ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
     }
+    if (oldVersion < 5) {
+      // Scroll offset within a chapter for scrolling-mode position restore.
+      await db.execute(
+          'ALTER TABLE books ADD COLUMN scroll_offset REAL NOT NULL DEFAULT 0.0');
+    }
   }
 
   Future<void> _createDailyStatsTable(Database db) async {
@@ -189,7 +194,7 @@ class DatabaseHelper {
   }
 
   /// Update reading progress for a book.
-  Future<void> updateProgress(String bookId, int chapter, int page, double progress) async {
+  Future<void> updateProgress(String bookId, int chapter, int page, double progress, {double scrollOffset = 0.0}) async {
     final db = await database;
     await db.update(
       'books',
@@ -197,6 +202,7 @@ class DatabaseHelper {
         'current_chapter': chapter,
         'current_page': page,
         'progress': progress,
+        'scroll_offset': scrollOffset,
         'last_read_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'id = ?',
