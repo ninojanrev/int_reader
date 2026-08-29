@@ -433,3 +433,9 @@ List<String> fragmentChapterInIsolate(String html) {
   return EpubParserService.chapterFragments(html);
 }
 
+/// Top-level function for use with [compute]. Splits chapter HTML into
+/// natural top-level blocks for vertical scrolling mode.
+List<String> verticalFragmentChapterInIsolate(String html) {
+  return EpubParserService.chapterBlocksForScrolling(html);
+}
+

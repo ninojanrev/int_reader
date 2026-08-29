@@ -1,10 +1,12 @@
 ﻿import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/book.dart';
@@ -96,6 +98,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   final Map<int, List<String>> _precomputedFragments = {};
   final Map<int, List<String>> _precomputedVerticalFragments = {};
   bool _preFragmentInProgress = false;
+  // Cached Style map for _styledHtml — avoids reconstructing ~15 Style objects per call.
+  Map<String, Style>? _cachedStyleMap;
+  String _styleMapSig = '';
+  // Cached parsed DOM elements — avoids redundant HTML-to-DOM parsing.
+  final Map<String, dom.Element> _domCache = {};
 
   // Per-slot page caches: each horizontal page index / vertical chapter
   // owns its OWN widget instances, so two live slots can never share and
@@ -153,6 +160,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     _verticalPageCache.clear();
     _verticalFragmentCache.clear();
     _verticalFragmentsCache.clear();
+    _cachedStyleMap = null;
+    _domCache.clear();
   }
 
   /// Theme/font resolution through the catalogs: built-in presets plus
@@ -484,7 +493,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
           // Fragment for both horizontal and vertical modes in parallel.
           final horizontalFrags = compute(fragmentChapterInIsolate, inlined);
-          final verticalFrags = compute(fragmentChapterInIsolate, inlined);
+          final verticalFrags = compute(verticalFragmentChapterInIsolate, inlined);
           final results = await Future.wait([horizontalFrags, verticalFrags]);
           if (!mounted) return;
           _precomputedFragments[j] = results[0];
@@ -523,9 +532,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     _measureScheduled = false;
     if (!mounted || _chapters.isEmpty || !_isHorizontal) return;
 
-    // Phase 1: measure current chapter ± 2 (min 7 chapters total).
-    final bufferStart = (_currentPageIndex - 2).clamp(0, _chapters.length);
-    final bufferEnd = (_currentPageIndex + 5).clamp(0, _chapters.length);
+    // Phase 1: measure current chapter ± 1 (min 3 chapters for fast first render).
+    final bufferStart = (_currentPageIndex - 1).clamp(0, _chapters.length);
+    final bufferEnd = (_currentPageIndex + 2).clamp(0, _chapters.length);
     _measuredChapterStart = bufferStart;
     _measuredChapterEnd = bufferEnd;
     _measureBatch(bufferStart, bufferEnd, isFirstBatch: true);
@@ -667,11 +676,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
-  /// Measure the next batch of 10 chapters in the background.
+  /// Measure the next batch of 5 chapters in the background.
   void _measureRemainingBatch() {
     if (!mounted || !_incrementalPhase) return;
     final start = _measuredChapterEnd;
-    final end = (start + 10).clamp(0, _chapters.length);
+    final end = (start + 5).clamp(0, _chapters.length);
     if (start >= end) {
       _incrementalPhase = false;
       return;
@@ -1220,55 +1229,69 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
+  /// Build and cache the Style map for `_styledHtml`. Rebuilt only when
+  /// text appearance settings or theme change.
+  Map<String, Style> _buildStyleMap(ReaderTheme theme) {
+    final sig = '$_resolvedFontFamily|$_fontSize|$_lineHeight|$_fontWeight|'
+        '$_textAlign|$_paragraphSpacing|${theme.text}';
+    if (sig == _styleMapSig && _cachedStyleMap != null) return _cachedStyleMap!;
+    _styleMapSig = sig;
+    _cachedStyleMap = {
+      'body': Style(
+        fontFamily: _resolvedFontFamily,
+        fontSize: FontSize(_fontSize),
+        fontWeight: _fontWeightValue(),
+        lineHeight: LineHeight.number(_lineHeight),
+        textAlign: _textAlignValue(),
+        color: theme.text,
+        margin: Margins.all(0),
+      ),
+      'p': Style(margin: Margins.only(bottom: _paragraphSpacing)),
+      'h1': Style(margin: Margins.only(bottom: 12), fontWeight: FontWeight.bold),
+      'h2': Style(margin: Margins.only(bottom: 10), fontWeight: FontWeight.bold),
+      'h3': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
+      'h4': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
+      'h5': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
+      'h6': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
+      'div': Style(margin: Margins.all(0)),
+      'blockquote': Style(
+        margin: Margins.only(left: 24, top: 0, bottom: 16, right: 0),
+        border: Border(
+          left: BorderSide(color: theme.text.withValues(alpha: 0.3), width: 3),
+        ),
+      ),
+      'strong': Style(fontWeight: FontWeight.bold),
+      'b': Style(fontWeight: FontWeight.bold),
+      'em': Style(fontStyle: FontStyle.italic),
+      'i': Style(fontStyle: FontStyle.italic),
+      'u': Style(textDecoration: TextDecoration.underline),
+      'code': Style(
+        fontFamily: 'monospace',
+        fontSize: FontSize(_fontSize * 0.9),
+        backgroundColor: theme.text.withValues(alpha: 0.08),
+      ),
+      'pre': Style(
+        fontFamily: 'monospace',
+        fontSize: FontSize(_fontSize * 0.9),
+        backgroundColor: theme.text.withValues(alpha: 0.08),
+        whiteSpace: WhiteSpace.pre,
+      ),
+    };
+    return _cachedStyleMap!;
+  }
+
   Widget _styledHtml(String htmlContent, ReaderTheme theme) {
     final data = (_searchActive && _committedHighlightQuery.length >= 2)
         ? highlightHtmlOccurrences(htmlContent, _committedHighlightQuery)
         : htmlContent;
-    return Html(
-      data: data,
-      style: {
-        'body': Style(
-          fontFamily: _resolvedFontFamily,
-          fontSize: FontSize(_fontSize),
-          fontWeight: _fontWeightValue(),
-          lineHeight: LineHeight.number(_lineHeight),
-          textAlign: _textAlignValue(),
-          color: theme.text,
-          margin: Margins.all(0),
-        ),
-        'p': Style(
-          margin: Margins.only(bottom: _paragraphSpacing),
-        ),
-        'h1': Style(margin: Margins.only(bottom: 12), fontWeight: FontWeight.bold),
-        'h2': Style(margin: Margins.only(bottom: 10), fontWeight: FontWeight.bold),
-        'h3': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
-        'h4': Style(margin: Margins.only(bottom: 8), fontWeight: FontWeight.bold),
-        'h5': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
-        'h6': Style(margin: Margins.only(bottom: 6), fontWeight: FontWeight.bold),
-        'div': Style(margin: Margins.all(0)),
-        'blockquote': Style(
-          margin: Margins.only(left: 24, top: 0, bottom: 16, right: 0),
-          border: Border(
-            left: BorderSide(color: theme.text.withValues(alpha: 0.3), width: 3),
-          ),
-        ),
-        'strong': Style(fontWeight: FontWeight.bold),
-        'b': Style(fontWeight: FontWeight.bold),
-        'em': Style(fontStyle: FontStyle.italic),
-        'i': Style(fontStyle: FontStyle.italic),
-        'u': Style(textDecoration: TextDecoration.underline),
-        'code': Style(
-          fontFamily: 'monospace',
-          fontSize: FontSize(_fontSize * 0.9),
-          backgroundColor: theme.text.withValues(alpha: 0.08),
-        ),
-        'pre': Style(
-          fontFamily: 'monospace',
-          fontSize: FontSize(_fontSize * 0.9),
-          backgroundColor: theme.text.withValues(alpha: 0.08),
-          whiteSpace: WhiteSpace.pre,
-        ),
-      },
+    // Cache the parsed DOM to avoid redundant HTML-to-DOM conversion.
+    final domElement = _domCache.putIfAbsent(
+      data,
+      () => html_parser.parse(data).documentElement!,
+    );
+    return Html.fromElement(
+      documentElement: domElement,
+      style: _buildStyleMap(theme),
     );
   }
 
@@ -1360,7 +1383,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     }
     // Over-tall fragment pixel-sliced across its own pages.
-    final widgets = _fragmentWidgets(theme, rec.chapter);
+    // Only build the single needed fragment, not the entire chapter.
+    final allFrags = _fragmentsFor(rec.chapter);
+    final neededFrag = allFrags[rec.firstFrag];
+    final singleWidget = SizedBox(width: _contentW, child: _styledHtml(neededFrag, theme));
     return LayoutBuilder(builder: (context, constraints) {
       final h = constraints.maxHeight;
       return ClipRect(
@@ -1374,9 +1400,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             offset: Offset(0, -(rec.subSlice * h).toDouble()),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (rec.firstFrag < widgets.length) widgets[rec.firstFrag],
-              ],
+              children: [singleWidget],
             ),
           ),
         ),
