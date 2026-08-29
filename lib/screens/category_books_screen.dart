@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../main.dart';
+import '../services/settings_service.dart';
 import '../widgets/book_cover_tile.dart';
+import '../widgets/book_list_tile.dart';
 import '../widgets/book_detail_sheet.dart';
 import '../providers/library_provider.dart';
 import 'reader_screen.dart';
@@ -73,6 +75,19 @@ class _CategoryBooksScreenState extends State<CategoryBooksScreen> {
           : null,
       appBar: AppBar(
         title: Text(currentCategory),
+        actions: [
+          IconButton(
+            icon: Icon(settings.categoryViewMode == 'list'
+                ? Icons.grid_view
+                : Icons.view_list),
+            tooltip: settings.categoryViewMode == 'list' ? 'Grid view' : 'List view',
+            onPressed: () {
+              settings.setCategoryViewMode(
+                  settings.categoryViewMode == 'list' ? 'grid' : 'list');
+              setState(() {});
+            },
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: Padding(
@@ -171,6 +186,23 @@ class _CategoryBooksScreenState extends State<CategoryBooksScreen> {
                             color: theme.colorScheme.onSurfaceVariant)),
                       ],
                     ),
+                  );
+                }
+                if (settings.categoryViewMode == 'list') {
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 0, 100),
+                    itemCount: books.length,
+                    itemBuilder: (context, i) {
+                      final book = books[i];
+                      return BookListTile(
+                        book: book,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ReaderScreen(book: book)),
+                        ),
+                        onLongPress: () => showBookDetailSheet(context, book),
+                      );
+                    },
                   );
                 }
                 return GridView.builder(

@@ -1715,7 +1715,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               Flexible(
                 child: Text(
-                  '$posLabel   \u00b7   Ch ${_currentPageIndex + 1}   \u00b7   $_clockText',
+                  '$posLabel   \u00b7   $_clockText',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

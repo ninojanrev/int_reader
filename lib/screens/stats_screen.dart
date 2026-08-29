@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../main.dart';
@@ -179,11 +180,18 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
   Widget _buildMetricGrid() {
     final theme = Theme.of(context);
     final library = context.watch<LibraryState>();
-    final metrics = [('Reading time', _stats!.totalFormatted, Icons.access_time),
+    final avgSession = _stats!.daysReadTotal > 0
+        ? (_stats!.totalMinutes / _stats!.daysReadTotal).round()
+        : 0;
+    final avgLabel = avgSession >= 60
+        ? '${(avgSession / 60).floor()}h ${avgSession % 60}m'
+        : '${avgSession}m';
+    final metrics = [
+      ('Reading time', _stats!.totalFormatted, Icons.access_time),
       ('Books finished', '${library.finishedBooks.length}', Icons.menu_book_outlined),
-      ('Books in library', '${library.books.length}', Icons.library_books_outlined),
-      ('Current streak', _stats!.currentStreakDays > 0 ? '${_stats!.currentStreakDays} days' : '\u2014',
-        Icons.local_fire_department_outlined)];
+      ('Avg. session', avgLabel, Icons.timelapse_outlined),
+      ('Days read', '${_stats!.daysReadTotal}', Icons.calendar_today_outlined),
+    ];
     return GridView.count(crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.6, children: metrics.map((m) {
       final (label, value, icon) = m;
@@ -257,8 +265,16 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: theme.colorScheme.outlineVariant, width: 0.5)),
         child: Padding(padding: const EdgeInsets.all(10), child: Row(children: [
-          Container(width: 34, height: 50, decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer, borderRadius: BorderRadius.circular(4))),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: 34, height: 50,
+              child: book.coverImagePath != null
+                  ? Image.file(File(book.coverImagePath!), fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => _buildCoverFallback(book, theme))
+                  : _buildCoverFallback(book, theme),
+            ),
+          ),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(book.title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
@@ -266,5 +282,23 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
           ])),
         ])));
     }).toList());
+  }
+
+  Widget _buildCoverFallback(dynamic book, ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        book.title.isNotEmpty ? book.title[0].toUpperCase() : '?',
+        style: TextStyle(
+          fontSize: 14,
+          color: theme.colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
   }
 }

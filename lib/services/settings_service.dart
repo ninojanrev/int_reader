@@ -34,6 +34,8 @@ class SettingsService {
   static const _kParagraphIndent = 'paragraph_indent';
   static const _kPerceptionExpander = 'perception_expander';
   static const _kHorizontalLimiter = 'horizontal_limiter';
+  static const _kLibraryViewMode = 'library_view_mode';
+  static const _kCategoryViewMode = 'category_view_mode';
 
   late SharedPreferences _prefs;
 
@@ -65,6 +67,8 @@ class SettingsService {
   double paragraphIndent = 0;
   bool perceptionExpander = false;
   bool horizontalLimiter = false;
+  String libraryViewMode = 'grid'; // 'grid' | 'list'
+  String categoryViewMode = 'grid'; // 'grid' | 'list'
 
   /// Call once before runApp.
   Future<void> init() async {
@@ -110,6 +114,8 @@ class SettingsService {
     paragraphIndent = _prefs.getDouble(_kParagraphIndent) ?? 0;
     perceptionExpander = _prefs.getBool(_kPerceptionExpander) ?? false;
     horizontalLimiter = _prefs.getBool(_kHorizontalLimiter) ?? false;
+    libraryViewMode = _prefs.getString(_kLibraryViewMode) ?? 'grid';
+    categoryViewMode = _prefs.getString(_kCategoryViewMode) ?? 'grid';
 
     final themesJson = _prefs.getString(_kCustomThemes);
     if (themesJson != null) {
@@ -259,6 +265,16 @@ class SettingsService {
   Future<void> setHorizontalLimiter(bool v) async {
     horizontalLimiter = v;
     await _prefs.setBool(_kHorizontalLimiter, v);
+  }
+
+  Future<void> setLibraryViewMode(String v) async {
+    libraryViewMode = v;
+    await _prefs.setString(_kLibraryViewMode, v);
+  }
+
+  Future<void> setCategoryViewMode(String v) async {
+    categoryViewMode = v;
+    await _prefs.setString(_kCategoryViewMode, v);
   }
 
   /// Restore every Reading-section option to its default and persist.

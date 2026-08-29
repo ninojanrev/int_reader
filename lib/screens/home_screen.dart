@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/book.dart';
 import '../main.dart';
 import '../widgets/book_cover_tile.dart';
+import '../widgets/book_list_tile.dart';
 import '../widgets/book_detail_sheet.dart';
 import '../widgets/continue_reading_card.dart';
 import '../widgets/cover_backdrop.dart';
@@ -473,7 +474,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildLibraryBody(LibraryState library, Book? continueBook,
       List<String> categories) {
     final recent = library.recentlyAddedBooks.take(_categoryPreviewLimit).toList();
-    return ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+    final isListMode = settings.libraryViewMode == 'list';
+    return ListView(padding: EdgeInsets.symmetric(horizontal: isListMode ? 0 : 16), children: [
       if (continueBook != null) ...[
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -496,32 +498,54 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
       if (recent.isNotEmpty) ...[
         const SizedBox(height: 20),
-        const Text('Recently added',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 140,
-          child: _buildRecentRow(recent),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: isListMode ? 16 : 0),
+          child: const Text('Recently added',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         ),
+        const SizedBox(height: 8),
+        if (isListMode)
+          Column(children: recent.map((book) => BookListTile(
+            book: book,
+            onTap: () => _openReader(book),
+            onLongPress: () => _showBookDetail(book),
+          )).toList())
+        else
+          SizedBox(
+            height: 140,
+            child: _buildRecentRow(recent),
+          ),
       ],
       for (final category in categories) ...[
         const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(category,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            TextButton(
-              onPressed: () => _openCategory(category),
-              child: const Text('View all'),
-            ),
-          ],
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: isListMode ? 16 : 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(category,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              TextButton(
+                onPressed: () => _openCategory(category),
+                child: const Text('View all'),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 140,
-          child: _buildCategoryRow(library, category),
-        ),
+        if (isListMode)
+          Column(children: library.booksForCategory(category).take(_categoryPreviewLimit).map(
+            (book) => BookListTile(
+              book: book,
+              onTap: () => _openReader(book),
+              onLongPress: () => _showBookDetail(book),
+            ),
+          ).toList())
+        else
+          SizedBox(
+            height: 140,
+            child: _buildCategoryRow(library, category),
+          ),
       ],
       const SizedBox(height: 12),
     ]);
@@ -575,6 +599,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeader() {
     final theme = Theme.of(context);
+    final isListMode = settings.libraryViewMode == 'list';
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -598,21 +623,32 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        GestureDetector(
-          onTap: _showProfileDialog,
-          child: CircleAvatar(
-            radius: 17,
-            backgroundColor: theme.colorScheme.primaryContainer,
-            child: Text(
-              'PJ',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.primary,
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(
+            icon: Icon(isListMode ? Icons.grid_view : Icons.view_list,
+                size: 20, color: theme.colorScheme.onSurfaceVariant),
+            tooltip: isListMode ? 'Grid view' : 'List view',
+            onPressed: () {
+              settings.setLibraryViewMode(isListMode ? 'grid' : 'list');
+              setState(() {});
+            },
+          ),
+          GestureDetector(
+            onTap: _showProfileDialog,
+            child: CircleAvatar(
+              radius: 17,
+              backgroundColor: theme.colorScheme.primaryContainer,
+              child: Text(
+                'PJ',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
               ),
             ),
           ),
-        ),
+        ]),
       ],
     );
   }
