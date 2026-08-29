@@ -463,9 +463,9 @@ class LibraryState extends ChangeNotifier {
   }
 
   /// Update reading progress for a book.
-  Future<void> updateProgress(String bookId, int chapter, int page, double progress, {double scrollOffset = 0.0}) async {
+  Future<void> updateProgress(String bookId, int chapter, int page, double progress, {double scrollOffset = 0.0, int scrollFragment = 0}) async {
     try {
-      await dbHelper.updateProgress(bookId, chapter, page, progress, scrollOffset: scrollOffset);
+      await dbHelper.updateProgress(bookId, chapter, page, progress, scrollOffset: scrollOffset, scrollFragment: scrollFragment);
       final index = _books.indexWhere((b) => b.id == bookId);
       if (index != -1) {
         _books[index] = _books[index].copyWith(
@@ -473,6 +473,7 @@ class LibraryState extends ChangeNotifier {
           currentPage: page,
           progress: progress,
           scrollOffset: scrollOffset,
+          scrollFragment: scrollFragment,
           lastReadAt: DateTime.now(),
         );
         notifyListeners();

@@ -125,7 +125,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   final ScrollController _verticalScrollController = ScrollController();
   Timer? _scrollOffsetSaveTimer;
   double _savedScrollOffset = 0.0; // fraction of maxScrollExtent
-  final Map<int, double> _chapterScrollOffsets = {}; // in-memory per-chapter offsets
+  int _savedScrollFragment = 0; // fragment anchor index
+  final Map<int, ({double fraction, int fragment})> _chapterScrollOffsets = {};
 
   // ---- In-reader search (find in book) ----
   bool _searchActive = false;
@@ -375,6 +376,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _progressSaveTimer?.cancel();
       _scrollOffsetSaveTimer?.cancel();
       _savedScrollOffset = _currentScrollOffset();
+      _savedScrollFragment = _currentScrollFragment();
       _saveProgress();
       _flushReadingTime();
     }
@@ -399,7 +401,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _library.updateProgress(
         widget.book.id, _currentPageIndex, _currentSlice, progress,
-        scrollOffset: _currentScrollOffset());
+        scrollOffset: _currentScrollOffset(),
+        scrollFragment: _currentScrollFragment());
   }
 
   /// Current scroll offset as a fraction of maxScrollExtent (0.0–1.0).
@@ -410,11 +413,29 @@ class _ReaderScreenState extends State<ReaderScreen>
     return (_verticalScrollController.offset / max).clamp(0.0, 1.0);
   }
 
+  /// Compute the fragment index the user is currently viewing by checking
+  /// cumulative heights from the vertical fragment keys.
+  int _currentScrollFragment() {
+    if (!_verticalScrollController.hasClients) return 0;
+    final offset = _verticalScrollController.offset;
+    var cumulative = 0.0;
+    final keyMap = _verticalItemKeys[_currentPageIndex];
+    if (keyMap == null || keyMap.isEmpty) return 0;
+    final entries = keyMap.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    for (var i = 0; i < entries.length; i++) {
+      final h = entries[i].value.currentContext?.size?.height ?? 0.0;
+      if (offset < cumulative + h * 0.5) return i;
+      cumulative += h;
+    }
+    return entries.length - 1;
+  }
+
   void _onVerticalScroll() {
     _scrollOffsetSaveTimer?.cancel();
     _scrollOffsetSaveTimer = Timer(const Duration(milliseconds: 600), () {
       if (!mounted) return;
       _savedScrollOffset = _currentScrollOffset();
+      _savedScrollFragment = _currentScrollFragment();
       _saveProgress();
     });
   }
@@ -432,6 +453,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _flushReadingTime();
     WakelockPlus.disable();
     _savedScrollOffset = _currentScrollOffset();
+    _savedScrollFragment = _currentScrollFragment();
     _saveProgress();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _verticalScrollController.dispose();
@@ -541,17 +563,40 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (_pageController!.page?.round() != target) {
         _pageController!.jumpToPage(target);
       }
-      // Restore scroll offset within the chapter (scrolling mode only).
       if (!_isHorizontal) {
-        final saved = _chapterScrollOffsets[_currentPageIndex] ?? _savedScrollOffset;
-        if (saved > 0) {
-          SchedulerBinding.instance.addPostFrameCallback((_) {
-            if (!mounted || !_verticalScrollController.hasClients) return;
-            final max = _verticalScrollController.position.maxScrollExtent;
-            if (max > 0) {
-              _verticalScrollController.jumpTo(saved * max);
-            }
-          });
+        _restoreChapterScrollOffset(_currentPageIndex);
+      }
+    });
+  }
+
+  /// Restore scroll position for a chapter using fragment anchor first, then
+  /// fraction fallback.
+  void _restoreChapterScrollOffset(int chapterIndex) {
+    final saved = _chapterScrollOffsets[chapterIndex];
+    final fraction = saved?.fraction ?? _savedScrollOffset;
+    final fragment = saved?.fragment ?? _savedScrollFragment;
+    if (fraction <= 0 && fragment <= 0) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_verticalScrollController.hasClients) return;
+      // Try fragment anchor first: scroll to the top of the saved fragment.
+      final keyMap = _verticalItemKeys[chapterIndex];
+      if (keyMap != null && fragment > 0 && fragment < keyMap.length) {
+        final entries = keyMap.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+        final ctx = entries[fragment].value.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(
+            ctx,
+            duration: Duration.zero,
+            alignment: 0.0,
+          );
+          return;
+        }
+      }
+      // Fraction fallback.
+      if (fraction > 0) {
+        final max = _verticalScrollController.position.maxScrollExtent;
+        if (max > 0) {
+          _verticalScrollController.jumpTo(fraction * max);
         }
       }
     });
@@ -834,8 +879,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!_isHorizontal && _verticalScrollController.hasClients) {
         final max = _verticalScrollController.position.maxScrollExtent;
         if (max > 0) {
-          _chapterScrollOffsets[_currentPageIndex] =
-              (_verticalScrollController.offset / max).clamp(0.0, 1.0);
+          _chapterScrollOffsets[_currentPageIndex] = (
+            fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
+            fragment: _currentScrollFragment(),
+          );
         }
       }
       _currentPageIndex = page;
@@ -843,12 +890,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       // Restore scroll offset for the new chapter after layout.
       if (!_isHorizontal) {
         SchedulerBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_verticalScrollController.hasClients) return;
-          final saved = _chapterScrollOffsets[page] ?? 0.0;
-          if (saved > 0) {
-            final max = _verticalScrollController.position.maxScrollExtent;
-            if (max > 0) _verticalScrollController.jumpTo(saved * max);
-          }
+          _restoreChapterScrollOffset(page);
         });
       }
     }
