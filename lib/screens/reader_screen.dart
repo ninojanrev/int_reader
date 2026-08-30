@@ -123,12 +123,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   List<Bookmark> _currentBookmarks = [];
 
   final ScrollController _verticalScrollController = ScrollController();
-  Timer? _scrollOffsetSaveTimer;
-  double _savedScrollOffset = 0.0; // fraction of maxScrollExtent
-  int _savedScrollFragment = 0; // fragment anchor index
-  final Map<int, ({double fraction, int fragment})> _chapterScrollOffsets = {};
-  bool _isProgrammaticNavigation = false;
-  double? _swipeDragDx;
 
   // ---- In-reader search (find in book) ----
   bool _searchActive = false;
@@ -307,15 +301,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (settings.volumeKeysTurnPages) {
       volumeKeyService.startListening(_onVolumeKey);
     }
-    _savedScrollOffset = widget.book.scrollOffset;
-    _verticalScrollController.addListener(_onVerticalScroll);
-    // Initialize per-chapter scroll map with saved values for the starting chapter.
-    if (!_isHorizontal && (widget.book.scrollOffset > 0 || widget.book.scrollFragment > 0)) {
-      _chapterScrollOffsets[_currentPageIndex] = (
-        fraction: widget.book.scrollOffset,
-        fragment: widget.book.scrollFragment,
-      );
-    }
     _loadEpub();
   }
 
@@ -341,7 +326,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         curve: Curves.easeOutCubic,
       );
     } else if (!_isHorizontal) {
-      _navigateToChapter(_currentPageIndex + 1, animate: true);
+      _navigateToChapter(_currentPageIndex + 1);
     }
   }
 
@@ -356,38 +341,27 @@ class _ReaderScreenState extends State<ReaderScreen>
         curve: Curves.easeOutCubic,
       );
     } else if (!_isHorizontal) {
-      _navigateToChapter(_currentPageIndex - 1, animate: true);
+      _navigateToChapter(_currentPageIndex - 1);
     }
   }
 
-  /// Unified chapter navigation: saves old scroll, updates state, animates/jumps, restores new scroll.
-  Future<void> _navigateToChapter(int chapterIndex, {bool animate = true}) async {
+  /// Animated jump to a neighbouring vertical chapter (clamped).
+  /// Unified chapter navigation: updates state first (fixing chapter-skipping
+  /// bug), then animates the PageView.
+  void _navigateToChapter(int chapterIndex, {bool animate = true}) {
     if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
     if (_pageController == null || !_pageController!.hasClients) return;
 
-    // 1. Save current chapter's scroll position (vertical mode only).
-    if (!_isHorizontal && _verticalScrollController.hasClients) {
-      final max = _verticalScrollController.position.maxScrollExtent;
-      if (max > 0) {
-        _chapterScrollOffsets[_currentPageIndex] = (
-          fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
-          fragment: _currentScrollFragment(),
-        );
-      }
-    }
+    final target =
+        _isHorizontal ? _globalPageFor(chapterIndex, 0) : chapterIndex;
 
-    // 2. Update internal state immediately for UI sync.
-    final target = _isHorizontal ? _globalPageFor(chapterIndex, 0) : chapterIndex;
     setState(() {
       _currentPageIndex = chapterIndex;
       _currentSlice = 0;
-      _bookmarked = _bookmarkedChapters.contains(chapterIndex);
     });
 
-    // 3. Navigate PageView.
-    _isProgrammaticNavigation = true;
     if (animate) {
-      await _pageController!.animateToPage(
+      _pageController!.animateToPage(
         target,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
@@ -395,20 +369,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     } else {
       _pageController!.jumpToPage(target);
     }
-    // Clear flag after onPageChanged has had time to fire.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _isProgrammaticNavigation = false;
-    });
-
-    // 4. Restore new chapter's scroll position (vertical mode).
-    if (!_isHorizontal) {
-      _restoreChapterScrollOffset(chapterIndex);
-    }
-
-    // 5. Trigger progress save.
-    _progressSaveTimer?.cancel();
-    _progressSaveTimer = Timer(const Duration(milliseconds: 600), _saveProgress);
-    _warmNeighbourPages();
   }
 
   @override
@@ -422,9 +382,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _progressSaveTimer?.cancel();
-      _scrollOffsetSaveTimer?.cancel();
-      _savedScrollOffset = _currentScrollOffset();
-      _savedScrollFragment = _currentScrollFragment();
       _saveProgress();
       _flushReadingTime();
     }
@@ -448,44 +405,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       progress = _progressFor(_currentPageIndex);
     }
     _library.updateProgress(
-        widget.book.id, _currentPageIndex, _currentSlice, progress,
-        scrollOffset: _currentScrollOffset(),
-        scrollFragment: _currentScrollFragment());
-  }
-
-  /// Current scroll offset as a fraction of maxScrollExtent (0.0–1.0).
-  double _currentScrollOffset() {
-    if (!_verticalScrollController.hasClients) return 0.0;
-    final max = _verticalScrollController.position.maxScrollExtent;
-    if (max <= 0) return 0.0;
-    return (_verticalScrollController.offset / max).clamp(0.0, 1.0);
-  }
-
-  /// Compute the fragment index the user is currently viewing by checking
-  /// cumulative heights from the vertical fragment keys.
-  int _currentScrollFragment() {
-    if (!_verticalScrollController.hasClients) return 0;
-    final offset = _verticalScrollController.offset;
-    var cumulative = 0.0;
-    final keyMap = _verticalItemKeys[_currentPageIndex];
-    if (keyMap == null || keyMap.isEmpty) return 0;
-    final entries = keyMap.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    for (var i = 0; i < entries.length; i++) {
-      final h = entries[i].value.currentContext?.size?.height ?? 0.0;
-      if (offset < cumulative + h * 0.5) return i;
-      cumulative += h;
-    }
-    return entries.length - 1;
-  }
-
-  void _onVerticalScroll() {
-    _scrollOffsetSaveTimer?.cancel();
-    _scrollOffsetSaveTimer = Timer(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      _savedScrollOffset = _currentScrollOffset();
-      _savedScrollFragment = _currentScrollFragment();
-      _saveProgress();
-    });
+        widget.book.id, _currentPageIndex, _currentSlice, progress);
   }
 
   @override
@@ -494,14 +414,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     volumeKeyService.stopListening();
     _clockTimer?.cancel();
     _progressSaveTimer?.cancel();
-    _scrollOffsetSaveTimer?.cancel();
     _statsFlushTimer?.cancel();
     _remeasureDebounce?.cancel();
     _readingStopwatch.stop();
     _flushReadingTime();
     WakelockPlus.disable();
-    _savedScrollOffset = _currentScrollOffset();
-    _savedScrollFragment = _currentScrollFragment();
     _saveProgress();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _verticalScrollController.dispose();
@@ -610,42 +527,6 @@ class _ReaderScreenState extends State<ReaderScreen>
           _isHorizontal ? _globalPageFor(_currentPageIndex, _currentSlice) : _currentPageIndex;
       if (_pageController!.page?.round() != target) {
         _pageController!.jumpToPage(target);
-      }
-      if (!_isHorizontal) {
-        _restoreChapterScrollOffset(_currentPageIndex);
-      }
-    });
-  }
-
-  /// Restore scroll position for a chapter using fragment anchor first, then
-  /// fraction fallback.
-  void _restoreChapterScrollOffset(int chapterIndex) {
-    final saved = _chapterScrollOffsets[chapterIndex];
-    final fraction = saved?.fraction ?? _savedScrollOffset;
-    final fragment = saved?.fragment ?? _savedScrollFragment;
-    if (fraction <= 0 && fragment <= 0) return;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_verticalScrollController.hasClients) return;
-      // Try fragment anchor first: scroll to the top of the saved fragment.
-      final keyMap = _verticalItemKeys[chapterIndex];
-      if (keyMap != null && fragment > 0 && fragment < keyMap.length) {
-        final entries = keyMap.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-        final ctx = entries[fragment].value.currentContext;
-        if (ctx != null) {
-          Scrollable.ensureVisible(
-            ctx,
-            duration: Duration.zero,
-            alignment: 0.0,
-          );
-          return;
-        }
-      }
-      // Fraction fallback.
-      if (fraction > 0) {
-        final max = _verticalScrollController.position.maxScrollExtent;
-        if (max > 0) {
-          _verticalScrollController.jumpTo(fraction * max);
-        }
       }
     });
   }
@@ -906,6 +787,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   // ================= Navigation =================
 
+  void _jumpToChapter(int chapterIndex) {
+    _navigateToChapter(chapterIndex, animate: false);
+  }
 
   void _onPageChanged(int page) {
     if (_isHorizontal && _pagesMeasured && _totalPages > 0) {
@@ -913,26 +797,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       _currentPageIndex = loc.$1;
       _currentSlice = loc.$2;
     } else {
-      // Skip save/restore when navigation is programmatic (TOC, swipe, volume keys)
-      // — _navigateToChapter already handles it.
-      if (!_isProgrammaticNavigation) {
-        // Save scroll offset for the old chapter before switching.
-        if (!_isHorizontal && _verticalScrollController.hasClients) {
-          final max = _verticalScrollController.position.maxScrollExtent;
-          if (max > 0) {
-            _chapterScrollOffsets[_currentPageIndex] = (
-              fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
-              fragment: _currentScrollFragment(),
-            );
-          }
-        }
-        // Restore scroll offset for the new chapter after layout.
-        if (!_isHorizontal) {
-          SchedulerBinding.instance.addPostFrameCallback((_) {
-            _restoreChapterScrollOffset(page);
-          });
-        }
-      }
       _currentPageIndex = page;
       _currentSlice = 0;
     }
@@ -1173,7 +1037,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         expand: false,
         builder: (context, scrollController) => ReaderTocSheet(
           currentChapterIndex: _currentPageIndex,
-          onChapterSelected: (index) => _navigateToChapter(index, animate: true),
+          onChapterSelected: _jumpToChapter,
           chapters: _chapters,
           bookmarks: _currentBookmarks,
           onDeleteBookmark: _deleteBookmarkFromSheet,
@@ -1598,31 +1462,10 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           return Stack(children: [
             GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onHorizontalDragStart: (_) => _swipeDragDx = 0,
-              onHorizontalDragUpdate: (details) =>
-                  _swipeDragDx = (_swipeDragDx ?? 0) + details.delta.dx,
-              onHorizontalDragEnd: (details) {
-                if (_isHorizontal) return; // paged mode handles its own swipes
-                final dx = _swipeDragDx ?? 0;
-                final velocity = details.primaryVelocity ?? 0;
-                final committed = velocity.abs() > 500 || dx.abs() > 80;
-                if (!committed) return;
-                if (dx < 0 || velocity < -500) {
-                  _navigateToChapter(_currentPageIndex + 1, animate: true);
-                } else {
-                  _navigateToChapter(_currentPageIndex - 1, animate: true);
-                }
-                _swipeDragDx = null;
-              },
+              behavior: HitTestBehavior.opaque,
               onTapUp: (details) {
                 final dx = details.localPosition.dx;
-                final dy = details.localPosition.dy;
                 final w = _viewportW;
-                final h = _viewportH;
-                // Ignore taps in top/bottom chrome areas so buttons work.
-                const chromeHeight = 56.0;
-                if (dy < chromeHeight || dy > h - chromeHeight) return;
                 if (dx < w * 0.33) {
                   _goToPreviousPage();
                 } else if (dx > w * 0.67) {
@@ -1690,16 +1533,34 @@ class _ReaderScreenState extends State<ReaderScreen>
         itemBuilder: (context, page) => _buildHorizontalSlice(theme, page),
       );
     }
-    // Vertical mode: return PageView directly. Horizontal swipe chapter
-    // navigation is handled by the outer GestureDetector.
-    return PageView.builder(
-      controller: _pageController!,
-      itemCount: _chapters.length,
-      scrollDirection: Axis.vertical,
-      allowImplicitScrolling: true,
-      onPageChanged: _onPageChanged,
-      itemBuilder: (context, index) =>
-          _buildVerticalPage(theme, _chapters[index]),
+    // Vertical mode: horizontal swipes move between chapters
+    // (left = next, right = previous); vertical drags pass through to the
+    // inner PageView via the gesture arena.
+    double? dragDx;
+    return GestureDetector(
+      onHorizontalDragStart: (_) => dragDx = 0,
+      onHorizontalDragUpdate: (details) => dragDx = (dragDx ?? 0) + details.delta.dx,
+      onHorizontalDragEnd: (details) {
+        final dx = dragDx ?? 0;
+        final velocity = details.primaryVelocity ?? 0;
+        final committed = velocity.abs() > 500 || dx.abs() > 80;
+        if (!committed) return;
+        if (dx < 0 || velocity < -500) {
+          _navigateToChapter(_currentPageIndex + 1); // left = next
+        } else {
+          _navigateToChapter(_currentPageIndex - 1); // right = prev
+        }
+        dragDx = null;
+      },
+      child: PageView.builder(
+        controller: _pageController!,
+        itemCount: _chapters.length,
+        scrollDirection: Axis.vertical,
+        allowImplicitScrolling: true,
+        onPageChanged: _onPageChanged,
+        itemBuilder: (context, index) =>
+            _buildVerticalPage(theme, _chapters[index]),
+      ),
     );
   }
 

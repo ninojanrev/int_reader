@@ -9,8 +9,6 @@ class Book {
   final double progress;
   final int currentChapter;
   final int currentPage;
-  final double scrollOffset;
-  final int scrollFragment;
   final int totalChapters;
   final DateTime addedAt;
   final DateTime? lastReadAt;
@@ -25,8 +23,6 @@ class Book {
     this.progress = 0.0,
     this.currentChapter = 0,
     this.currentPage = 0,
-    this.scrollOffset = 0.0,
-    this.scrollFragment = 0,
     this.totalChapters = 0,
     required this.addedAt,
     this.lastReadAt,
@@ -46,8 +42,6 @@ class Book {
       progress: (map['progress'] as num?)?.toDouble() ?? 0.0,
       currentChapter: map['current_chapter'] as int? ?? 0,
       currentPage: map['current_page'] as int? ?? 0,
-      scrollOffset: (map['scroll_offset'] as num?)?.toDouble() ?? 0.0,
-      scrollFragment: map['scroll_fragment'] as int? ?? 0,
       totalChapters: map['total_chapters'] as int? ?? 0,
       addedAt: DateTime.fromMillisecondsSinceEpoch(map['added_at'] as int),
       lastReadAt: map['last_read_at'] != null
@@ -68,8 +62,6 @@ class Book {
       'progress': progress,
       'current_chapter': currentChapter,
       'current_page': currentPage,
-      'scroll_offset': scrollOffset,
-      'scroll_fragment': scrollFragment,
       'total_chapters': totalChapters,
       'added_at': addedAt.millisecondsSinceEpoch,
       'last_read_at': lastReadAt?.millisecondsSinceEpoch,
@@ -87,8 +79,6 @@ class Book {
     double? progress,
     int? currentChapter,
     int? currentPage,
-    double? scrollOffset,
-    int? scrollFragment,
     int? totalChapters,
     DateTime? addedAt,
     DateTime? lastReadAt,
@@ -103,8 +93,6 @@ class Book {
       progress: progress ?? this.progress,
       currentChapter: currentChapter ?? this.currentChapter,
       currentPage: currentPage ?? this.currentPage,
-      scrollOffset: scrollOffset ?? this.scrollOffset,
-      scrollFragment: scrollFragment ?? this.scrollFragment,
       totalChapters: totalChapters ?? this.totalChapters,
       addedAt: addedAt ?? this.addedAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
