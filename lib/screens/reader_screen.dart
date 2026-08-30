@@ -1597,10 +1597,15 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           return Stack(children: [
             GestureDetector(
-              behavior: HitTestBehavior.opaque,
+              behavior: HitTestBehavior.translucent,
               onTapUp: (details) {
                 final dx = details.localPosition.dx;
+                final dy = details.localPosition.dy;
                 final w = _viewportW;
+                final h = _viewportH;
+                // Ignore taps in top/bottom chrome areas so buttons work.
+                const chromeHeight = 56.0;
+                if (dy < chromeHeight || dy > h - chromeHeight) return;
                 if (dx < w * 0.33) {
                   _goToPreviousPage();
                 } else if (dx > w * 0.67) {
