@@ -127,6 +127,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   double _savedScrollOffset = 0.0; // fraction of maxScrollExtent
   int _savedScrollFragment = 0; // fragment anchor index
   final Map<int, ({double fraction, int fragment})> _chapterScrollOffsets = {};
+  bool _isProgrammaticNavigation = false;
 
   // ---- In-reader search (find in book) ----
   bool _searchActive = false;
@@ -383,6 +384,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
 
     // 3. Navigate PageView.
+    _isProgrammaticNavigation = true;
     if (animate) {
       await _pageController!.animateToPage(
         target,
@@ -392,6 +394,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     } else {
       _pageController!.jumpToPage(target);
     }
+    // Clear flag after onPageChanged has had time to fire.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _isProgrammaticNavigation = false;
+    });
 
     // 4. Restore new chapter's scroll position (vertical mode).
     if (!_isHorizontal) {
@@ -906,24 +912,28 @@ class _ReaderScreenState extends State<ReaderScreen>
       _currentPageIndex = loc.$1;
       _currentSlice = loc.$2;
     } else {
-      // Save scroll offset for the old chapter before switching.
-      if (!_isHorizontal && _verticalScrollController.hasClients) {
-        final max = _verticalScrollController.position.maxScrollExtent;
-        if (max > 0) {
-          _chapterScrollOffsets[_currentPageIndex] = (
-            fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
-            fragment: _currentScrollFragment(),
-          );
+      // Skip save/restore when navigation is programmatic (TOC, swipe, volume keys)
+      // — _navigateToChapter already handles it.
+      if (!_isProgrammaticNavigation) {
+        // Save scroll offset for the old chapter before switching.
+        if (!_isHorizontal && _verticalScrollController.hasClients) {
+          final max = _verticalScrollController.position.maxScrollExtent;
+          if (max > 0) {
+            _chapterScrollOffsets[_currentPageIndex] = (
+              fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
+              fragment: _currentScrollFragment(),
+            );
+          }
+        }
+        // Restore scroll offset for the new chapter after layout.
+        if (!_isHorizontal) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            _restoreChapterScrollOffset(page);
+          });
         }
       }
       _currentPageIndex = page;
       _currentSlice = 0;
-      // Restore scroll offset for the new chapter after layout.
-      if (!_isHorizontal) {
-        SchedulerBinding.instance.addPostFrameCallback((_) {
-          _restoreChapterScrollOffset(page);
-        });
-      }
     }
     setState(() {
       _bookmarked = _bookmarkedChapters.contains(_currentPageIndex);
