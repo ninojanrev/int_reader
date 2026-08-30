@@ -49,3 +49,6 @@ app.*.map.json
 
 # Widget preview tool artifacts
 .widget_preview/
+
+# Release APKs (distribute via GitHub Releases instead)
+/releases/*.apk
