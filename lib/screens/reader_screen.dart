@@ -128,6 +128,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _savedScrollFragment = 0; // fragment anchor index
   final Map<int, ({double fraction, int fragment})> _chapterScrollOffsets = {};
   bool _isProgrammaticNavigation = false;
+  double? _swipeDragDx;
 
   // ---- In-reader search (find in book) ----
   bool _searchActive = false;
@@ -1598,6 +1599,22 @@ class _ReaderScreenState extends State<ReaderScreen>
           return Stack(children: [
             GestureDetector(
               behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: (_) => _swipeDragDx = 0,
+              onHorizontalDragUpdate: (details) =>
+                  _swipeDragDx = (_swipeDragDx ?? 0) + details.delta.dx,
+              onHorizontalDragEnd: (details) {
+                if (_isHorizontal) return; // paged mode handles its own swipes
+                final dx = _swipeDragDx ?? 0;
+                final velocity = details.primaryVelocity ?? 0;
+                final committed = velocity.abs() > 500 || dx.abs() > 80;
+                if (!committed) return;
+                if (dx < 0 || velocity < -500) {
+                  _navigateToChapter(_currentPageIndex + 1, animate: true);
+                } else {
+                  _navigateToChapter(_currentPageIndex - 1, animate: true);
+                }
+                _swipeDragDx = null;
+              },
               onTapUp: (details) {
                 final dx = details.localPosition.dx;
                 final dy = details.localPosition.dy;
@@ -1673,34 +1690,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         itemBuilder: (context, page) => _buildHorizontalSlice(theme, page),
       );
     }
-    // Vertical mode: horizontal swipes move between chapters
-    // (left = next, right = previous); vertical drags pass through to the
-    // inner PageView via the gesture arena.
-    double? dragDx;
-    return GestureDetector(
-      onHorizontalDragStart: (_) => dragDx = 0,
-      onHorizontalDragUpdate: (details) => dragDx = (dragDx ?? 0) + details.delta.dx,
-      onHorizontalDragEnd: (details) {
-        final dx = dragDx ?? 0;
-        final velocity = details.primaryVelocity ?? 0;
-        final committed = velocity.abs() > 500 || dx.abs() > 80;
-        if (!committed) return;
-        if (dx < 0 || velocity < -500) {
-          _navigateToChapter(_currentPageIndex + 1, animate: true); // left = next
-        } else {
-          _navigateToChapter(_currentPageIndex - 1, animate: true); // right = prev
-        }
-        dragDx = null;
-      },
-      child: PageView.builder(
-        controller: _pageController!,
-        itemCount: _chapters.length,
-        scrollDirection: Axis.vertical,
-        allowImplicitScrolling: true,
-        onPageChanged: _onPageChanged,
-        itemBuilder: (context, index) =>
-            _buildVerticalPage(theme, _chapters[index]),
-      ),
+    // Vertical mode: return PageView directly. Horizontal swipe chapter
+    // navigation is handled by the outer GestureDetector.
+    return PageView.builder(
+      controller: _pageController!,
+      itemCount: _chapters.length,
+      scrollDirection: Axis.vertical,
+      allowImplicitScrolling: true,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, index) =>
+          _buildVerticalPage(theme, _chapters[index]),
     );
   }
 
