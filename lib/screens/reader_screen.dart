@@ -307,6 +307,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _savedScrollOffset = widget.book.scrollOffset;
     _verticalScrollController.addListener(_onVerticalScroll);
+    // Initialize per-chapter scroll map with saved values for the starting chapter.
+    if (!_isHorizontal && (widget.book.scrollOffset > 0 || widget.book.scrollFragment > 0)) {
+      _chapterScrollOffsets[_currentPageIndex] = (
+        fraction: widget.book.scrollOffset,
+        fragment: widget.book.scrollFragment,
+      );
+    }
     _loadEpub();
   }
 
@@ -332,7 +339,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         curve: Curves.easeOutCubic,
       );
     } else if (!_isHorizontal) {
-      _jumpToChapterAnimated(_currentPageIndex + 1);
+      _navigateToChapter(_currentPageIndex + 1, animate: true);
     }
   }
 
@@ -347,20 +354,54 @@ class _ReaderScreenState extends State<ReaderScreen>
         curve: Curves.easeOutCubic,
       );
     } else if (!_isHorizontal) {
-      _jumpToChapterAnimated(_currentPageIndex - 1);
+      _navigateToChapter(_currentPageIndex - 1, animate: true);
     }
   }
 
-  /// Animated jump to a neighbouring vertical chapter (clamped).
-  void _jumpToChapterAnimated(int chapterIndex) {
+  /// Unified chapter navigation: saves old scroll, updates state, animates/jumps, restores new scroll.
+  Future<void> _navigateToChapter(int chapterIndex, {bool animate = true}) async {
+    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
     if (_pageController == null || !_pageController!.hasClients) return;
-    final target =
-        chapterIndex.clamp(0, _chapters.isEmpty ? 0 : _chapters.length - 1);
-    _pageController!.animateToPage(
-      target,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
+
+    // 1. Save current chapter's scroll position (vertical mode only).
+    if (!_isHorizontal && _verticalScrollController.hasClients) {
+      final max = _verticalScrollController.position.maxScrollExtent;
+      if (max > 0) {
+        _chapterScrollOffsets[_currentPageIndex] = (
+          fraction: (_verticalScrollController.offset / max).clamp(0.0, 1.0),
+          fragment: _currentScrollFragment(),
+        );
+      }
+    }
+
+    // 2. Update internal state immediately for UI sync.
+    final target = _isHorizontal ? _globalPageFor(chapterIndex, 0) : chapterIndex;
+    setState(() {
+      _currentPageIndex = chapterIndex;
+      _currentSlice = 0;
+      _bookmarked = _bookmarkedChapters.contains(chapterIndex);
+    });
+
+    // 3. Navigate PageView.
+    if (animate) {
+      await _pageController!.animateToPage(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      _pageController!.jumpToPage(target);
+    }
+
+    // 4. Restore new chapter's scroll position (vertical mode).
+    if (!_isHorizontal) {
+      _restoreChapterScrollOffset(chapterIndex);
+    }
+
+    // 5. Trigger progress save.
+    _progressSaveTimer?.cancel();
+    _progressSaveTimer = Timer(const Duration(milliseconds: 600), _saveProgress);
+    _warmNeighbourPages();
   }
 
   @override
@@ -858,16 +899,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   // ================= Navigation =================
 
-  void _jumpToChapter(int chapterIndex) {
-    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
-    final target =
-        _isHorizontal ? _globalPageFor(chapterIndex, 0) : chapterIndex;
-    setState(() {
-      _currentPageIndex = chapterIndex;
-      _currentSlice = 0;
-    });
-    _pageController?.jumpToPage(target);
-  }
 
   void _onPageChanged(int page) {
     if (_isHorizontal && _pagesMeasured && _totalPages > 0) {
@@ -1131,7 +1162,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         expand: false,
         builder: (context, scrollController) => ReaderTocSheet(
           currentChapterIndex: _currentPageIndex,
-          onChapterSelected: _jumpToChapter,
+          onChapterSelected: (index) => _navigateToChapter(index, animate: true),
           chapters: _chapters,
           bookmarks: _currentBookmarks,
           onDeleteBookmark: _deleteBookmarkFromSheet,
@@ -1640,9 +1671,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         final committed = velocity.abs() > 500 || dx.abs() > 80;
         if (!committed) return;
         if (dx < 0 || velocity < -500) {
-          _jumpToChapterAnimated(_currentPageIndex + 1); // left = next
+          _navigateToChapter(_currentPageIndex + 1, animate: true); // left = next
         } else {
-          _jumpToChapterAnimated(_currentPageIndex - 1); // right = prev
+          _navigateToChapter(_currentPageIndex - 1, animate: true); // right = prev
         }
         dragDx = null;
       },
